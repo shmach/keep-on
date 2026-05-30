@@ -35,7 +35,9 @@ async function startSession(config) {
     phase: 'focus',
     distractions: 0,
     distractedMs: 0,
-    lastBlacklistVisit: null
+    lastBlacklistVisit: null,
+    pausedMs: 0,  // Track total paused time
+    isPaused: false
   };
 
   await chrome.storage.local.set({ session });
@@ -64,11 +66,19 @@ async function endSession() {
     session.active = false;
     await chrome.storage.local.set({ session });
 
+    // Clear all grace period timeouts
+    for (const timeoutId of gracePeriodTimeouts.values()) {
+      clearTimeout(timeoutId);
+    }
+    gracePeriodTimeouts.clear();
+
     // Clear alarms
     chrome.alarms.clearAll();
 
     // Update icon
     updateIcon(false);
+
+    console.log('[Focus Alarm] Session ended');
 
     // Notify popup
     chrome.runtime.sendMessage({
@@ -117,35 +127,106 @@ async function isBlacklisted(tabUrl) {
   }
 }
 
+// Track grace period timeouts by tab ID
+const gracePeriodTimeouts = new Map();
+
+// Track when each grace period started
+const gracePeriodStartTimes = new Map();
+
+// Trigger overlay for a blacklisted tab
+async function triggerOverlay(tabId) {
+  const result = await chrome.storage.local.get('session');
+  const session = result.session;
+
+  if (session && session.active) {
+    // Increment distraction count
+    session.distractions++;
+
+    // Pause the session timer
+    session.isPaused = true;
+    session.pausedStartTime = Date.now();
+
+    await chrome.storage.local.set({ session });
+
+    console.log(`[Focus Alarm] Triggering overlay for tab ${tabId}, session paused`);
+
+    // Get the grace period start time
+    const gracePeriodStartTime = gracePeriodStartTimes.get(tabId) || Date.now();
+
+    // Send overlay message to tab
+    chrome.tabs.sendMessage(tabId, {
+      type: 'SHOW_OVERLAY',
+      sessionInfo: session,
+      distractionStartedAt: gracePeriodStartTime
+    }).catch((err) => {
+      console.error(`[Focus Alarm] Failed to send overlay message to tab ${tabId}:`, err);
+    });
+  }
+
+  // Clear the timeout from tracking
+  gracePeriodTimeouts.delete(tabId);
+  gracePeriodStartTimes.delete(tabId);
+}
+
+// Clear grace period timeout for a tab
+function clearGracePeriod(tabId) {
+  if (gracePeriodTimeouts.has(tabId)) {
+    clearTimeout(gracePeriodTimeouts.get(tabId));
+    gracePeriodTimeouts.delete(tabId);
+    gracePeriodStartTimes.delete(tabId);
+    console.log(`[Focus Alarm] Cleared grace period for tab ${tabId}`);
+  }
+}
+
 // Handle tab activation
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
   const session = await chrome.storage.local.get('session');
 
-  if (!session.session || !session.session.active) return;
+  if (!session.session || !session.session.active) {
+    console.log('[Focus Alarm] Tab activated but no active session');
+    return;
+  }
 
   // Skip if we're on the focus tab
   if (activeInfo.tabId === session.session.focusTabId) {
-    // Clear any grace period for this tab
-    chrome.alarms.clear(`grace-${activeInfo.tabId}`);
+    console.log('[Focus Alarm] Activated tab is focus tab, clearing grace period');
+    clearGracePeriod(activeInfo.tabId);
     return;
+  }
+
+  // Clear grace period for any other tab that was active
+  for (const tabId of gracePeriodTimeouts.keys()) {
+    if (tabId !== activeInfo.tabId) {
+      clearGracePeriod(tabId);
+    }
   }
 
   const tab = await chrome.tabs.get(activeInfo.tabId);
   const blacklisted = await isBlacklisted(tab.url);
 
+  console.log(`[Focus Alarm] Tab ${activeInfo.tabId} activated:`, tab.url, '| Blacklisted:', blacklisted, '| Phase:', session.session.phase);
+
   if (blacklisted && session.session.phase === 'focus') {
     // Start grace period
     const settings = await chrome.storage.local.get('settings');
-    const graceSec = settings.settings.gracePeriodMs / 1000;
-    chrome.alarms.create(`grace-${activeInfo.tabId}`, { delayInSeconds: graceSec });
+    const graceMs = settings.settings.gracePeriodMs;
+    const gracePeriodStart = Date.now();
+    console.log(`[Focus Alarm] Creating grace period for tab ${activeInfo.tabId} with ${graceMs}ms delay`);
+
+    gracePeriodStartTimes.set(activeInfo.tabId, gracePeriodStart);
+    const timeoutId = setTimeout(() => {
+      triggerOverlay(activeInfo.tabId);
+    }, graceMs);
+
+    gracePeriodTimeouts.set(activeInfo.tabId, timeoutId);
   }
 });
 
 // Handle tab updates (URL change)
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (changeInfo.url) {
-    // URL changed, clear any pending grace alarm for this tab
-    chrome.alarms.clear(`grace-${tabId}`);
+    // URL changed, clear any pending grace period for this tab
+    clearGracePeriod(tabId);
 
     // Re-check if the new URL is blacklisted
     const session = await chrome.storage.local.get('session');
@@ -154,15 +235,24 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     const blacklisted = await isBlacklisted(tab.url);
     if (blacklisted && session.session.phase === 'focus') {
       const settings = await chrome.storage.local.get('settings');
-      const graceSec = settings.settings.gracePeriodMs / 1000;
-      chrome.alarms.create(`grace-${tabId}`, { delayInSeconds: graceSec });
+      const graceMs = settings.settings.gracePeriodMs;
+      const gracePeriodStart = Date.now();
+      console.log(`[Focus Alarm] URL changed to blacklist, creating grace period with ${graceMs}ms delay`);
+
+      gracePeriodStartTimes.set(tabId, gracePeriodStart);
+      const timeoutId = setTimeout(() => {
+        triggerOverlay(tabId);
+      }, graceMs);
+
+      gracePeriodTimeouts.set(tabId, timeoutId);
     }
   }
 });
 
-// Handle alarms
+// Handle alarms (only for session-end and phase-end, grace periods use setTimeout)
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'session-end') {
+    console.log('[Focus Alarm] Session-end alarm fired');
     endSession();
   } else if (alarm.name === 'phase-end') {
     // Pomodoro phase transition
@@ -184,27 +274,13 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
       const nextPhaseMin = nextPhaseDurationMs / 60000;
       chrome.alarms.create('phase-end', { delayInMinutes: nextPhaseMin });
 
+      console.log(`[Focus Alarm] Phase changed to: ${session.phase}`);
+
       // Notify popup of phase change
       chrome.runtime.sendMessage({
         type: 'PHASE_CHANGED',
         phase: session.phase
       }).catch(() => {});
-    }
-  } else if (alarm.name.startsWith('grace-')) {
-    // Grace period expired, show overlay
-    const tabId = parseInt(alarm.name.split('-')[1]);
-    const session = await chrome.storage.local.get('session');
-
-    if (session.session && session.session.active) {
-      // Increment distraction count
-      session.session.distractions++;
-      await chrome.storage.local.set({ session });
-
-      // Send overlay message to tab
-      chrome.tabs.sendMessage(tabId, {
-        type: 'SHOW_OVERLAY',
-        sessionInfo: session.session
-      }).catch(() => {}); // Tab might not have content script ready
     }
   }
 });
@@ -220,6 +296,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   } else if (request.type === 'GET_SESSION') {
     chrome.storage.local.get('session', (result) => {
       sendResponse({ session: result.session });
+    });
+    return true; // async response
+  } else if (request.type === 'OVERLAY_DISMISSED') {
+    // Resume session timer
+    chrome.storage.local.get('session', (result) => {
+      const session = result.session;
+      if (session && session.active && session.isPaused) {
+        const pauseDuration = Date.now() - session.pausedStartTime;
+        session.pausedMs += pauseDuration;
+        session.isPaused = false;
+        delete session.pausedStartTime;
+        chrome.storage.local.set({ session });
+        console.log(`[Focus Alarm] Session resumed, added ${pauseDuration}ms to paused time`);
+      }
+      sendResponse({ success: true });
     });
     return true; // async response
   }

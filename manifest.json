@@ -3,8 +3,15 @@
   "name": "Focus Alarm",
   "version": "1.0.0",
   "description": "Stay focused with smart distraction detection. Alarm on blacklisted sites after a grace period.",
-  "permissions": ["tabs", "storage", "alarms", "activeTab"],
-  "host_permissions": ["<all_urls>"],
+  "permissions": [
+    "tabs",
+    "storage",
+    "alarms",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
   "background": {
     "service_worker": "background/service_worker.js"
   },
@@ -14,9 +21,15 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content/overlay.js"],
-      "css": ["content/overlay.css"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content/overlay.js"
+      ],
+      "css": [
+        "content/overlay.css"
+      ],
       "run_at": "document_start"
     }
   ],
@@ -28,10 +41,5 @@
       },
       "description": "Toggle focus session on/off"
     }
-  },
-  "icons": {
-    "16": "assets/icons/icon-16.png",
-    "48": "assets/icons/icon-48.png",
-    "128": "assets/icons/icon-128.png"
   }
 }

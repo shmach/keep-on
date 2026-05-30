@@ -90,7 +90,16 @@ function startLiveUpdates(session) {
 }
 
 function updateTimerDisplay(session) {
-  const elapsed = Date.now() - session.startedAt;
+  let elapsed = Date.now() - session.startedAt;
+
+  // Subtract paused time from elapsed
+  elapsed -= session.pausedMs || 0;
+
+  // If currently paused, subtract the current pause duration
+  if (session.isPaused && session.pausedStartTime) {
+    elapsed -= (Date.now() - session.pausedStartTime);
+  }
+
   const remaining = Math.max(0, session.durationMs - elapsed);
   const minutes = Math.floor(remaining / 60000);
   const seconds = Math.floor((remaining % 60000) / 1000);

@@ -6,13 +6,15 @@ let overlayStartTime = null;
 let distraction = null;
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  console.log('[Focus Alarm Content] Received message:', request.type);
   if (request.type === 'SHOW_OVERLAY') {
-    showAlarmOverlay(request.sessionInfo);
+    console.log('[Focus Alarm Content] Showing overlay for distraction');
+    showAlarmOverlay(request.sessionInfo, request.distractionStartedAt);
     sendResponse({ success: true });
   }
 });
 
-function showAlarmOverlay(sessionInfo) {
+function showAlarmOverlay(sessionInfo, distractionStartedAt) {
   if (overlayElement) {
     return; // Already showing
   }
@@ -20,7 +22,8 @@ function showAlarmOverlay(sessionInfo) {
   overlayStartTime = Date.now();
   distraction = {
     sessionStartedAt: sessionInfo.startedAt,
-    focusTabId: sessionInfo.focusTabId
+    focusTabId: sessionInfo.focusTabId,
+    distractionStartedAt: distractionStartedAt || overlayStartTime
   };
 
   // Create overlay container
@@ -160,7 +163,7 @@ function showAlarmOverlay(sessionInfo) {
       clearInterval(counterInterval);
       return;
     }
-    const elapsed = Math.round((Date.now() - overlayStartTime) / 1000);
+    const elapsed = Math.round((Date.now() - distraction.distractionStartedAt) / 1000);
     const counterEl = document.getElementById('distraction-counter');
     if (counterEl) {
       counterEl.textContent = elapsed;
@@ -181,6 +184,11 @@ function dismissOverlay() {
   overlayElement = null;
   overlayStartTime = null;
   distraction = null;
+
+  // Notify service worker that overlay was dismissed
+  chrome.runtime.sendMessage({
+    type: 'OVERLAY_DISMISSED'
+  }).catch(() => {});
 }
 
 function playAlarmSound() {
