@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Focus Alarm</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <!-- Session inactive state -->
+    <div id="session-inactive" class="session-state">
+      <h1>🎯 Focus Alarm</h1>
+      <p class="subtitle">Stay focused, avoid distractions</p>
+
+      <div class="form-group">
+        <label for="duration-input">Session Duration (minutes)</label>
+        <input
+          type="number"
+          id="duration-input"
+          min="1"
+          max="240"
+          value="45"
+          class="input-field"
+        >
+      </div>
+
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="pomodoro-toggle">
+          <span>Pomodoro Mode (25/5)</span>
+        </label>
+      </div>
+
+      <div class="form-group">
+        <label for="focus-tab-select">Focus Tab (optional)</label>
+        <select id="focus-tab-select" class="input-field">
+          <option value="">-- None (pin current) --</option>
+        </select>
+      </div>
+
+      <button id="start-btn" class="btn btn-primary">Start Session</button>
+      <button id="options-btn" class="btn btn-secondary">Settings</button>
+    </div>
+
+    <!-- Session active state -->
+    <div id="session-active" class="session-state" style="display: none;">
+      <h1>⏱️ Session Active</h1>
+
+      <div class="session-info">
+        <div class="info-row">
+          <span class="label">Time Left:</span>
+          <span id="time-left" class="value">--</span>
+        </div>
+        <div class="info-row">
+          <span class="label">Phase:</span>
+          <span id="phase" class="value">focus</span>
+        </div>
+        <div class="info-row">
+          <span class="label">Distractions:</span>
+          <span id="distraction-count" class="value">0</span>
+        </div>
+      </div>
+
+      <button id="stop-btn" class="btn btn-danger">Stop Session</button>
+    </div>
+
+    <!-- Session ended state -->
+    <div id="session-ended" class="session-state" style="display: none;">
+      <h1>✅ Session Complete!</h1>
+
+      <div class="session-stats">
+        <div class="stat">
+          <span class="stat-label">Duration:</span>
+          <span id="stat-duration" class="stat-value">--</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Distractions:</span>
+          <span id="stat-distractions" class="stat-value">0</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Time Distracted:</span>
+          <span id="stat-distracted-time" class="stat-value">0m 0s</span>
+        </div>
+      </div>
+
+      <button id="start-new-btn" class="btn btn-primary">Start New Session</button>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

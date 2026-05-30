@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Focus Alarm Settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="options-container">
+    <h1>🎯 Focus Alarm Settings</h1>
+
+    <!-- Blacklist Section -->
+    <section class="settings-section">
+      <h2>Blacklisted Sites</h2>
+      <p class="section-description">Add domains that trigger the alarm</p>
+
+      <div id="blacklist-container" class="blacklist-container">
+        <!-- Items added dynamically -->
+      </div>
+
+      <div class="form-group">
+        <input
+          type="text"
+          id="new-domain-input"
+          placeholder="e.g., twitter.com"
+          class="input-field"
+        >
+        <button id="add-domain-btn" class="btn btn-secondary">+ Add Domain</button>
+      </div>
+    </section>
+
+    <!-- Grace Period Section -->
+    <section class="settings-section">
+      <h2>Grace Period</h2>
+      <p class="section-description">Time before alarm triggers (seconds)</p>
+
+      <div class="slider-group">
+        <input
+          type="range"
+          id="grace-period-slider"
+          min="5"
+          max="60"
+          step="5"
+          value="15"
+          class="slider"
+        >
+        <div class="slider-value">
+          <span id="grace-period-value">15</span>s
+        </div>
+      </div>
+    </section>
+
+    <!-- Pomodoro Settings -->
+    <section class="settings-section">
+      <h2>Pomodoro Settings</h2>
+
+      <div class="form-group">
+        <label>Focus Duration (minutes)</label>
+        <input
+          type="number"
+          id="pomodoro-focus-input"
+          min="1"
+          max="60"
+          value="25"
+          class="input-field"
+        >
+      </div>
+
+      <div class="form-group">
+        <label>Break Duration (minutes)</label>
+        <input
+          type="number"
+          id="pomodoro-break-input"
+          min="1"
+          max="30"
+          value="5"
+          class="input-field"
+        >
+      </div>
+    </section>
+
+    <!-- Alarm Settings -->
+    <section class="settings-section">
+      <h2>Alarm Settings</h2>
+
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="alarm-sound-toggle" checked>
+          <span>Play alarm sound</span>
+        </label>
+      </div>
+    </section>
+
+    <!-- Reset Section -->
+    <section class="settings-section">
+      <button id="reset-btn" class="btn btn-danger">Reset to Defaults</button>
+    </section>
+
+    <div id="save-message" class="save-message" style="display: none;">
+      ✓ Settings saved
+    </div>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>
