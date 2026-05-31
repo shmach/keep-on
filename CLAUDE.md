@@ -2,16 +2,15 @@
 
 ## Project Overview
 
-A Chrome/Firefox browser extension that enforces focus sessions with smart distraction detection. Users start a timed focus session and set a focus tab; when they visit blacklisted sites (social media), an alarm triggers after a configurable grace period (default 15s), overlaying a motivational message with a countdown and a button to return to the focus tab.
+A Chrome/Firefox browser extension that enforces focus sessions with smart distraction detection. Users start a timed focus session; when they visit blacklisted sites (social media), an alarm triggers after a configurable grace period (default 15s), overlaying a motivational message with a countdown.
 
-**Key differentiator:** Unlike blockers that permanently prevent access, this tool reacts in real-time and respects breaks, making it a *partner* rather than a *jailer*.
+**Key differentiator:** Unlike blockers that permanently prevent access, this tool reacts in real-time, making it a *partner* rather than a *jailer*.
 
 ## Tech Stack
 
 - **Manifest V3** — current Chrome/Firefox standard
 - **Vanilla JavaScript** — no build step, no dependencies
 - **Chrome Storage API** — persistent state (`chrome.storage.local`)
-- **Chrome Alarms API** — timers (survives service worker sleep)
 - **Chrome Tabs API** — active tab tracking and manipulation
 
 ## Architecture
@@ -22,7 +21,7 @@ A Chrome/Firefox browser extension that enforces focus sessions with smart distr
 .
 ├── manifest.json                 # MV3manifest config
 ├── background/
-│   └── service_worker.js         # Session state machine, tab monitoring, alarm logic
+│   └── service_worker.js         # Session state machine, tab monitoring, timer logic
 ├── content/
 │   ├── overlay.js                # Injects alarm overlay into tabs
 │   └── overlay.css               # Overlay styling
@@ -31,7 +30,7 @@ A Chrome/Firefox browser extension that enforces focus sessions with smart distr
 │   ├── popup.js
 │   └── popup.css
 ├── options/
-│   ├── options.html              # Settings: blacklist, grace period, pomodoro config
+│   ├── options.html              # Settings: blacklist, grace period
 │   ├── options.js
 │   └── options.css
 ├── lib/
@@ -50,8 +49,6 @@ A Chrome/Firefox browser extension that enforces focus sessions with smart distr
   startedAt: number,              // timestamp (ms)
   durationMs: number,
   focusTabId: number | null,
-  pomodoroMode: boolean,
-  phase: 'focus' | 'break',       // only if pomodoro enabled
   distractions: number,           // count of alarm triggers
   distractedMs: number,           // cumulative time on blacklist tabs
   lastBlacklistVisit: number      // timestamp of last blacklist tab activation
@@ -65,8 +62,6 @@ A Chrome/Firefox browser extension that enforces focus sessions with smart distr
     'twitter.com', 'x.com', 'reddit.com', 'instagram.com',
     'tiktok.com', 'facebook.com', 'youtube.com'
   ],
-  pomodoroDurationMs: 1500000,    // 25 min
-  breakDurationMs: 300000,        // 5 min
 }
 
 // chrome.storage.local.history (optional)
@@ -81,35 +76,28 @@ A Chrome/Firefox browser extension that enforces focus sessions with smart distr
 **Session Start**
 1. User opens popup, enters duration (min), optionally pins current tab as focus tab, clicks Start
 2. Popup writes session state + settings to `chrome.storage.local`
-3. Service worker reads change, starts monitoring tabs + sets up alarms
+3. Service worker reads change, starts monitoring tabs + sets up timers
 
 **Blacklist Detection & Alarm**
 1. Service worker listens to `chrome.tabs.onActivated` and `chrome.tabs.onUpdated`
-2. On tab change, extract hostname; check if in blacklist + session is active (not in break phase)
-3. If match: set a `chrome.alarms.create('grace-period-[tabId]', { delayInMinutes: gracePeriodMs/60000 })`
-4. If user leaves tab before alarm fires: `chrome.alarms.clear('grace-period-[tabId]')`
-5. If alarm fires: service worker sends message to content script → overlay injected
+2. On tab change, extract hostname; check if in blacklist + session is active
+3. If match: start a grace-period timer (`setTimeout`) keyed by tabId
+4. If user leaves tab before the timer fires: clear the timer
+5. If the timer fires: service worker sends message to content script → overlay injected
 
 **Overlay Behavior**
-1. Content script receives `{ type: 'SHOW_OVERLAY', sessionInfo, focusTabId }`
+1. Content script receives `{ type: 'SHOW_OVERLAY', sessionInfo }`
 2. Injects full-page overlay with:
    - Blurred background
    - Distraction counter (e.g., "You've been here for 23 seconds")
    - Motivational message (e.g., "You're 15 min into your session — stay sharp")
-   - "Go Back to Focus Tab" button
-3. Button click: `chrome.tabs.update(focusTabId, { active: true })`
-4. Overlay auto-dismisses if user navigates away (detects URL change)
+3. Overlay auto-dismisses if user navigates away (detects URL change)
 
 **Session End**
 1. Timer reaches 0 OR user clicks Stop
-2. Service worker clears all alarms, computes final stats
+2. Service worker clears all timers, computes final stats
 3. Sends `{ type: 'SESSION_ENDED', stats }` to popup
 4. Popup displays stats, then clears session state
-
-**Pomodoro Mode**
-1. If enabled: session alternates between focus phase (25 min) and break phase (5 min)
-2. During break: blacklist is *not* enforced (no overlay triggered)
-3. Phase transition is automatic via `chrome.alarms.create('phase-end')`
 
 ## Development
 
@@ -144,23 +132,16 @@ Before considering a phase done:
    - [ ] Leave reddit before 15s → no overlay appears
 
 3. **Overlay interactions**
-   - [ ] Click "Go Back to Focus Tab" → redirects to focus tab
    - [ ] Overlay dismisses when navigating away
    - [ ] Distraction counter increments correctly
 
-4. **Pomodoro mode**
-   - [ ] Enable Pomodoro, start session
-   - [ ] After 25 min, phase switches to "break"
-   - [ ] Visit blacklist site during break → no overlay (check popup shows "break" state)
-   - [ ] After 5 min break, phase switches back to "focus"
-
-5. **Settings**
+4. **Settings**
    - [ ] Add/remove items from blacklist (options page)
    - [ ] Adjust grace period (5s–60s)
    - [ ] Toggle alarm sound
    - [ ] Changes persist across extension reload
 
-6. **Stats**
+5. **Stats**
    - [ ] Session ends → popup shows distraction count and total distracted time
    - [ ] Stats match manual count (if you deliberately triggered alarms)
 
@@ -170,7 +151,7 @@ See `/plan` for detailed breakdown. TL;DR:
 
 0. **Setup** — folder, git, CLAUDE.md ✓
 1. **Manifest + skeleton** — file structure, basic manifest.json
-2. **Service worker** — session logic, tab monitoring, alarms
+2. **Service worker** — session logic, tab monitoring, timers
 3. **Overlay** — content script, visual + audio
 4. **Popup UI** — session control + live display
 5. **Options page** — blacklist + settings editor
@@ -178,7 +159,7 @@ See `/plan` for detailed breakdown. TL;DR:
 
 ## Notes
 
-- **Service worker persistence:** Chrome's service workers sleep after 5 min of inactivity. Use `chrome.alarms` for long-running timers (our pomodoro/session timers), not `setInterval` or `setTimeout`.
+- **Service worker persistence:** Chrome's service workers sleep after 5 min of inactivity. Persist `session.startedAt`/`durationMs` to `chrome.storage.local` and recompute remaining time on wake rather than relying on an in-memory timer surviving.
 - **Content script permissions:** We use `content_scripts` that match `<all_urls>`, so the overlay can inject into any page. This is safe (no privilege escalation) and necessary for the feature.
 - **Icon state:** We update the extension icon color via `chrome.action.setIcon()` when session starts/ends to give visual feedback without opening the popup.
 - **Hostname extraction:** Use `new URL(tab.url).hostname` for consistent domain parsing (handles www vs non-www, ports, etc.).
@@ -187,5 +168,4 @@ See `/plan` for detailed breakdown. TL;DR:
 
 - https://developer.chrome.com/docs/extensions/reference/tabs/
 - https://developer.chrome.com/docs/extensions/reference/storage/
-- https://developer.chrome.com/docs/extensions/reference/alarms/
 - https://developer.chrome.com/docs/extensions/reference/action/
