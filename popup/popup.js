@@ -2,7 +2,6 @@
 // Manages UI state and communication with service worker
 
 const durationInput = document.getElementById('duration-input');
-const pomodoroToggle = document.getElementById('pomodoro-toggle');
 const focusTabSelect = document.getElementById('focus-tab-select');
 const startBtn = document.getElementById('start-btn');
 const optionsBtn = document.getElementById('options-btn');
@@ -66,7 +65,6 @@ function showActiveState(session) {
 
   currentSession = session;
   updateTimerDisplay(session);
-  updatePhaseDisplay(session);
   updateDistractionCount(session);
 }
 
@@ -80,7 +78,6 @@ function startLiveUpdates(session) {
       if (response.session && response.session.active) {
         currentSession = response.session;
         updateTimerDisplay(response.session);
-        updatePhaseDisplay(response.session);
         updateDistractionCount(response.session);
       } else {
         clearInterval(updateInterval);
@@ -112,11 +109,6 @@ function updateTimerDisplay(session) {
   }
 }
 
-function updatePhaseDisplay(session) {
-  const phaseEl = document.getElementById('phase');
-  phaseEl.textContent = session.phase || 'focus';
-}
-
 function updateDistractionCount(session) {
   const countEl = document.getElementById('distraction-count');
   countEl.textContent = session.distractions;
@@ -143,14 +135,12 @@ function showSessionEnded(session) {
 startBtn.addEventListener('click', async () => {
   const duration = parseInt(durationInput.value) * 60000;
   const focusTabId = focusTabSelect.value ? parseInt(focusTabSelect.value) : null;
-  const pomodoro = pomodoroToggle.checked;
 
   chrome.runtime.sendMessage({
     type: 'START_SESSION',
     config: {
       durationMs: duration,
-      focusTabId,
-      pomodoroMode: pomodoro
+      focusTabId
     }
   }, () => {
     updateSessionState();
@@ -169,13 +159,6 @@ stopBtn.addEventListener('click', () => {
 
 startNewBtn.addEventListener('click', () => {
   showInactiveState();
-});
-
-// Listen for phase changes
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.type === 'PHASE_CHANGED') {
-    updatePhaseDisplay({ phase: request.phase });
-  }
 });
 
 // Initialize on load

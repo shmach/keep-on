@@ -8,9 +8,7 @@ const DEFAULTS = {
     blacklist: [
       'twitter.com', 'x.com', 'reddit.com', 'instagram.com',
       'tiktok.com', 'facebook.com', 'youtube.com'
-    ],
-    pomodoroDurationMs: 1500000,  // 25 min
-    breakDurationMs: 300000       // 5 min
+    ]
   }
 };
 
@@ -31,8 +29,6 @@ async function startSession(config) {
     startedAt: now,
     durationMs: config.durationMs,
     focusTabId: config.focusTabId || null,
-    pomodoroMode: config.pomodoroMode || false,
-    phase: 'focus',
     distractions: 0,
     distractedMs: 0,
     lastBlacklistVisit: null,
@@ -46,23 +42,23 @@ async function startSession(config) {
   const durationMin = config.durationMs / 60000;
   chrome.alarms.create('session-end', { delayInMinutes: durationMin });
 
-  // If pomodoro, set phase-end alarm for first phase (focus)
-  if (config.pomodoroMode) {
-    const settings = await chrome.storage.local.get('settings');
-    const focusMin = settings.settings.pomodoroDurationMs / 60000;
-    chrome.alarms.create('phase-end', { delayInMinutes: focusMin });
-  }
-
   // Update icon
   updateIcon(true);
 }
 
 // End the session and record stats
-async function endSession() {
+async function endSession(isTimerExpired = false) {
   const result = await chrome.storage.local.get('session');
   const session = result.session;
 
   if (session && session.active) {
+    // Capture stats before mutating session state
+    const stats = {
+      durationMs: session.durationMs,
+      distractions: session.distractions,
+      distractedMs: session.distractedMs
+    };
+
     session.active = false;
     await chrome.storage.local.set({ session });
 
@@ -80,14 +76,21 @@ async function endSession() {
 
     console.log('[Focus Alarm] Session ended');
 
+    // Only show completion overlay if timer naturally expired (not manually stopped)
+    if (isTimerExpired) {
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (activeTab) {
+        chrome.tabs.sendMessage(activeTab.id, {
+          type: 'SESSION_COMPLETE',
+          stats
+        }).catch(() => {}); // Tab may not have content script (e.g., chrome:// pages)
+      }
+    }
+
     // Notify popup
     chrome.runtime.sendMessage({
       type: 'SESSION_ENDED',
-      stats: {
-        durationMs: session.durationMs,
-        distractions: session.distractions,
-        distractedMs: session.distractedMs
-      }
+      stats
     }).catch(() => {}); // Popup might not be open
   }
 }
@@ -204,9 +207,9 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
   const tab = await chrome.tabs.get(activeInfo.tabId);
   const blacklisted = await isBlacklisted(tab.url);
 
-  console.log(`[Focus Alarm] Tab ${activeInfo.tabId} activated:`, tab.url, '| Blacklisted:', blacklisted, '| Phase:', session.session.phase);
+  console.log(`[Focus Alarm] Tab ${activeInfo.tabId} activated:`, tab.url, '| Blacklisted:', blacklisted);
 
-  if (blacklisted && session.session.phase === 'focus') {
+  if (blacklisted) {
     // Start grace period
     const settings = await chrome.storage.local.get('settings');
     const graceMs = settings.settings.gracePeriodMs;
@@ -233,7 +236,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     if (!session.session || !session.session.active) return;
 
     const blacklisted = await isBlacklisted(tab.url);
-    if (blacklisted && session.session.phase === 'focus') {
+    if (blacklisted) {
       const settings = await chrome.storage.local.get('settings');
       const graceMs = settings.settings.gracePeriodMs;
       const gracePeriodStart = Date.now();
@@ -249,39 +252,11 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   }
 });
 
-// Handle alarms (only for session-end and phase-end, grace periods use setTimeout)
+// Handle alarms
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'session-end') {
     console.log('[Focus Alarm] Session-end alarm fired');
-    endSession();
-  } else if (alarm.name === 'phase-end') {
-    // Pomodoro phase transition
-    const result = await chrome.storage.local.get('session');
-    const session = result.session;
-
-    if (session && session.active && session.pomodoroMode) {
-      const settings = await chrome.storage.local.get('settings');
-      const wasBreak = session.phase === 'break';
-      session.phase = wasBreak ? 'focus' : 'break';
-
-      const nextPhaseDurationMs = wasBreak
-        ? settings.settings.pomodoroDurationMs
-        : settings.settings.breakDurationMs;
-
-      await chrome.storage.local.set({ session });
-
-      // Set up next phase-end alarm
-      const nextPhaseMin = nextPhaseDurationMs / 60000;
-      chrome.alarms.create('phase-end', { delayInMinutes: nextPhaseMin });
-
-      console.log(`[Focus Alarm] Phase changed to: ${session.phase}`);
-
-      // Notify popup of phase change
-      chrome.runtime.sendMessage({
-        type: 'PHASE_CHANGED',
-        phase: session.phase
-      }).catch(() => {});
-    }
+    await endSession(true); // Pass true to indicate timer naturally expired
   }
 });
 
@@ -291,8 +266,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     startSession(request.config);
     sendResponse({ success: true });
   } else if (request.type === 'END_SESSION') {
-    endSession();
-    sendResponse({ success: true });
+    endSession().then(() => {
+      sendResponse({ success: true });
+    });
+    return true; // async response
   } else if (request.type === 'GET_SESSION') {
     chrome.storage.local.get('session', (result) => {
       sendResponse({ session: result.session });
@@ -319,9 +296,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 // Command handler for keyboard shortcut
 chrome.commands.onCommand.addListener((command) => {
   if (command === 'toggle-session') {
-    chrome.storage.local.get('session', (result) => {
+    chrome.storage.local.get('session', async (result) => {
       if (result.session && result.session.active) {
-        endSession();
+        await endSession();
       } else {
         // Default: 45 min session
         startSession({ durationMs: 45 * 60000 });

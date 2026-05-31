@@ -5,49 +5,7 @@ let overlayElement = null;
 let overlayStartTime = null;
 let distraction = null;
 
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  console.log('[Focus Alarm Content] Received message:', request.type);
-  if (request.type === 'SHOW_OVERLAY') {
-    console.log('[Focus Alarm Content] Showing overlay for distraction');
-    showAlarmOverlay(request.sessionInfo, request.distractionStartedAt);
-    sendResponse({ success: true });
-  }
-});
-
-function showAlarmOverlay(sessionInfo, distractionStartedAt) {
-  if (overlayElement) {
-    return; // Already showing
-  }
-
-  overlayStartTime = Date.now();
-  distraction = {
-    sessionStartedAt: sessionInfo.startedAt,
-    focusTabId: sessionInfo.focusTabId,
-    distractionStartedAt: distractionStartedAt || overlayStartTime
-  };
-
-  // Create overlay container
-  overlayElement = document.createElement('div');
-  overlayElement.id = 'focus-alarm-overlay';
-  overlayElement.innerHTML = `
-    <div class="focus-alarm-backdrop">
-      <div class="focus-alarm-card">
-        <h1 class="focus-alarm-title">⏰ Time Check</h1>
-        <p class="focus-alarm-counter">
-          You've been here for <span id="distraction-counter">0</span>s
-        </p>
-        <p class="focus-alarm-message" id="focus-alarm-message">
-          You're ${Math.round((Date.now() - sessionInfo.startedAt) / 1000 / 60)} min into your session — stay sharp!
-        </p>
-        <button id="focus-alarm-back-btn" class="focus-alarm-btn">↩ Go Back to Focus Tab</button>
-        <button id="focus-alarm-dismiss-btn" class="focus-alarm-btn secondary">Dismiss</button>
-      </div>
-    </div>
-  `;
-
-  document.documentElement.appendChild(overlayElement);
-
-  // Inject styles if not already there
+function injectSharedStyles() {
   if (!document.getElementById('focus-alarm-styles')) {
     const styleEl = document.createElement('style');
     styleEl.id = 'focus-alarm-styles';
@@ -91,6 +49,10 @@ function showAlarmOverlay(sessionInfo, distractionStartedAt) {
         font-weight: 600;
       }
 
+      .focus-alarm-title.success {
+        color: #4CAF50;
+      }
+
       .focus-alarm-counter {
         margin: 0 0 16px 0;
         font-size: 18px;
@@ -104,9 +66,17 @@ function showAlarmOverlay(sessionInfo, distractionStartedAt) {
       }
 
       .focus-alarm-message {
-        margin: 0 0 24px 0;
+        margin: 0 0 16px 0;
         font-size: 16px;
         color: #333;
+        line-height: 1.5;
+      }
+
+      .focus-alarm-recommendation {
+        margin: 0 0 24px 0;
+        font-size: 14px;
+        color: #666;
+        font-style: italic;
         line-height: 1.5;
       }
 
@@ -143,18 +113,63 @@ function showAlarmOverlay(sessionInfo, distractionStartedAt) {
     `;
     document.head.appendChild(styleEl);
   }
+}
+
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  console.log('[Focus Alarm Content] Received message:', request.type);
+  if (request.type === 'SHOW_OVERLAY') {
+    console.log('[Focus Alarm Content] Showing overlay for distraction');
+    showAlarmOverlay(request.sessionInfo, request.distractionStartedAt);
+    sendResponse({ success: true });
+  } else if (request.type === 'SESSION_COMPLETE') {
+    console.log('[Focus Alarm Content] Showing session complete overlay');
+    showSessionCompleteOverlay(request.stats);
+    sendResponse({ success: true });
+  }
+});
+
+function showAlarmOverlay(sessionInfo, distractionStartedAt) {
+  if (overlayElement) {
+    return; // Already showing
+  }
+
+  overlayStartTime = Date.now();
+  distraction = {
+    sessionStartedAt: sessionInfo.startedAt,
+    focusTabId: sessionInfo.focusTabId,
+    distractionStartedAt: distractionStartedAt || overlayStartTime
+  };
+
+  // Create overlay container
+  overlayElement = document.createElement('div');
+  overlayElement.id = 'focus-alarm-overlay';
+  overlayElement.innerHTML = `
+    <div class="focus-alarm-backdrop">
+      <div class="focus-alarm-card">
+        <h1 class="focus-alarm-title">⏰ Time Check</h1>
+        <p class="focus-alarm-counter">
+          You've been here for <span id="distraction-counter">0</span>s
+        </p>
+        <p class="focus-alarm-message" id="focus-alarm-message">
+          You're ${Math.round((Date.now() - sessionInfo.startedAt) / 1000 / 60)} min into your session — stay sharp!
+        </p>
+        <p class="focus-alarm-recommendation">
+          Consider closing this tab to return to your focus session.
+        </p>
+        <button id="focus-alarm-dismiss-btn" class="focus-alarm-btn">Dismiss</button>
+      </div>
+    </div>
+  `;
+
+  document.documentElement.appendChild(overlayElement);
+
+  // Inject shared styles if not already there
+  injectSharedStyles();
 
   // Play alarm sound
   playAlarmSound();
 
   // Event listeners
-  document.getElementById('focus-alarm-back-btn').addEventListener('click', () => {
-    if (distraction.focusTabId) {
-      chrome.tabs.update(distraction.focusTabId, { active: true });
-    }
-    dismissOverlay();
-  });
-
   document.getElementById('focus-alarm-dismiss-btn').addEventListener('click', dismissOverlay);
 
   // Update counter every second
@@ -189,6 +204,58 @@ function dismissOverlay() {
   chrome.runtime.sendMessage({
     type: 'OVERLAY_DISMISSED'
   }).catch(() => {});
+}
+
+function formatMs(ms) {
+  const m = Math.floor(ms / 60000);
+  const s = Math.floor((ms % 60000) / 1000);
+  return `${m}m ${s}s`;
+}
+
+function getMotivationalMessage(distractions) {
+  if (distractions === 0) return 'Perfect focus! Outstanding work.';
+  if (distractions <= 2)  return 'Great job! You stayed on track.';
+  if (distractions <= 5)  return 'Good session — keep reducing distractions.';
+  return 'Tough session. You\'ll do better next time!';
+}
+
+function showSessionCompleteOverlay(stats) {
+  // Dismiss any in-progress distraction overlay first
+  if (overlayElement) {
+    dismissOverlay();
+  }
+
+  overlayElement = document.createElement('div');
+  overlayElement.id = 'focus-alarm-overlay';
+  overlayElement.innerHTML = `
+    <div class="focus-alarm-backdrop">
+      <div class="focus-alarm-card">
+        <h1 class="focus-alarm-title success">🎉 Session Complete!</h1>
+        <p class="focus-alarm-message">
+          <strong>Duration:</strong> ${formatMs(stats.durationMs)}<br>
+          <strong>Distractions:</strong> ${stats.distractions}<br>
+          <strong>Time distracted:</strong> ${formatMs(stats.distractedMs)}
+        </p>
+        <p class="focus-alarm-recommendation">
+          ${getMotivationalMessage(stats.distractions)}
+        </p>
+        <button id="focus-alarm-close-btn" class="focus-alarm-btn">Close</button>
+      </div>
+    </div>
+  `;
+
+  document.documentElement.appendChild(overlayElement);
+
+  // Inject shared styles if not already present
+  injectSharedStyles();
+
+  // Close button handler
+  document.getElementById('focus-alarm-close-btn').addEventListener('click', () => {
+    if (overlayElement && overlayElement.parentElement) {
+      overlayElement.parentElement.removeChild(overlayElement);
+    }
+    overlayElement = null;
+  });
 }
 
 function playAlarmSound() {

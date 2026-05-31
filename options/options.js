@@ -3,8 +3,6 @@
 
 const gracePeriodSlider = document.getElementById('grace-period-slider');
 const gracePeriodValue = document.getElementById('grace-period-value');
-const pomodoroFocusInput = document.getElementById('pomodoro-focus-input');
-const pomodoroBreakInput = document.getElementById('pomodoro-break-input');
 const alarmSoundToggle = document.getElementById('alarm-sound-toggle');
 const newDomainInput = document.getElementById('new-domain-input');
 const addDomainBtn = document.getElementById('add-domain-btn');
@@ -19,9 +17,7 @@ const DEFAULTS = {
     blacklist: [
       'twitter.com', 'x.com', 'reddit.com', 'instagram.com',
       'tiktok.com', 'facebook.com', 'youtube.com'
-    ],
-    pomodoroDurationMs: 1500000,  // 25 min
-    breakDurationMs: 300000       // 5 min
+    ]
   }
 };
 
@@ -33,10 +29,6 @@ async function loadSettings() {
   // Grace period
   gracePeriodSlider.value = settings.gracePeriodMs / 1000;
   gracePeriodValue.textContent = settings.gracePeriodMs / 1000;
-
-  // Pomodoro
-  pomodoroFocusInput.value = settings.pomodoroDurationMs / 60000;
-  pomodoroBreakInput.value = settings.breakDurationMs / 60000;
 
   // Alarm sound
   alarmSoundToggle.checked = settings.alarmSound;
@@ -122,16 +114,6 @@ gracePeriodSlider.addEventListener('input', async (e) => {
   const ms = parseInt(e.target.value) * 1000;
   gracePeriodValue.textContent = e.target.value;
   await saveSetting('gracePeriodMs', ms);
-});
-
-pomodoroFocusInput.addEventListener('change', async (e) => {
-  const ms = parseInt(e.target.value) * 60000;
-  await saveSetting('pomodoroDurationMs', ms);
-});
-
-pomodoroBreakInput.addEventListener('change', async (e) => {
-  const ms = parseInt(e.target.value) * 60000;
-  await saveSetting('breakDurationMs', ms);
 });
 
 alarmSoundToggle.addEventListener('change', async (e) => {
