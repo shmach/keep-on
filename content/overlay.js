@@ -116,13 +116,10 @@ function injectSharedStyles() {
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  console.log('[Focus Alarm Content] Received message:', request.type);
   if (request.type === 'SHOW_OVERLAY') {
-    console.log('[Focus Alarm Content] Showing overlay for distraction');
     showAlarmOverlay(request.sessionInfo, request.distractionStartedAt);
     sendResponse({ success: true });
   } else if (request.type === 'SESSION_COMPLETE') {
-    console.log('[Focus Alarm Content] Showing session complete overlay');
     showSessionCompleteOverlay(request.stats);
     sendResponse({ success: true });
   }
@@ -277,6 +274,6 @@ function playAlarmSound() {
     oscillator.start(audioContext.currentTime);
     oscillator.stop(audioContext.currentTime + 0.5);
   } catch (e) {
-    console.log('Could not play alarm sound:', e);
+    // Audio unavailable; fail silently
   }
 }
