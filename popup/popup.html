@@ -1,28 +1,28 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Keep on</title>
   <link rel="stylesheet" href="popup.css">
 </head>
+
 <body>
   <div class="popup-container">
     <!-- Session inactive state -->
     <div id="session-inactive" class="session-state">
-      <h1>🎯 Keep on</h1>
+      <div class="title-container">
+        <img src="/assets/keep-on.png" alt="Keep on logo" width="50px" height="50px">
+        <h1>
+          Keep on
+        </h1>
+      </div>
       <p class="subtitle">Stay focused, avoid distractions</p>
 
       <div class="form-group">
         <label for="duration-input">Session Duration (minutes)</label>
-        <input
-          type="number"
-          id="duration-input"
-          min="1"
-          max="240"
-          value="45"
-          class="input-field"
-        >
+        <input type="number" id="duration-input" min="1" max="240" value="45" class="input-field">
       </div>
 
       <div class="form-group">
@@ -79,4 +79,5 @@
 
   <script src="popup.js"></script>
 </body>
+
 </html>

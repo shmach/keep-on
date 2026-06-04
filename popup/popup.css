@@ -17,6 +17,14 @@ body {
   background: white;
 }
 
+.title-container {
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: start;
+}
+
 h1 {
   font-size: 20px;
   margin-bottom: 4px;
@@ -38,6 +46,7 @@ h1 {
     opacity: 0;
     transform: translateY(10px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);

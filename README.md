@@ -1,4 +1,6 @@
-# 🎯 Keep on
+# Keep on
+
+![Keep on Logo](/assets/keep-on-banner.png)
 
 A Chrome/Firefox browser extension that enforces focus sessions with smart, real-time distraction detection.
 
