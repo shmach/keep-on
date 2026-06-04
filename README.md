@@ -1,10 +1,10 @@
-# 🎯 Focus Alarm
+# 🎯 Keep on
 
 A Chrome/Firefox browser extension that enforces focus sessions with smart, real-time distraction detection.
 
 Start a timed focus session and pick a focus tab. When you wander onto a blacklisted site (social media, etc.), an alarm triggers after a short grace period — overlaying a motivational message and a button to jump back to your focus tab.
 
-**Why it's different:** Unlike blockers that permanently lock you out, Focus Alarm reacts in real time and respects breaks. It's a *partner*, not a *jailer*.
+**Why it's different:** Unlike blockers that permanently lock you out, Keep On reacts in real time and respects breaks. It's a *partner*, not a *jailer*.
 
 ## Features
 
@@ -34,7 +34,7 @@ Start a timed focus session and pick a focus tab. When you wander onto a blackli
 
 ## Usage
 
-1. Click the Focus Alarm icon to open the popup.
+1. Click the Keep on icon to open the popup.
 2. Enter a session duration (in minutes) and optionally choose a focus tab.
 3. Click **Start Session**.
 4. Stay on task. If you open a blacklisted site, you have a grace period (default 15s) before the alarm fires.
