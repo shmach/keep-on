@@ -26,6 +26,10 @@ Start a timed focus session and pick a focus tab. When you wander onto a blackli
 - **Chrome Storage API** — persistent state (`chrome.storage.local`)
 - **Chrome Tabs API** — active tab tracking and manipulation
 
+## Firefox Compatibility
+
+Firefox supports Manifest V3 extensions, but background service workers require the `background.service_worker` key, which is only available in **Firefox 128 or later**. If you're running an older version, the extension will fail to load. To enable service worker support in compatible versions, go to `about:config` and set `extensions.backgroundServiceWorker.enabled` to `true` — this flag may not be present in all builds, as it was still behind a preference during early MV3 rollout.
+
 ## Installation (Chrome)
 
 1. Open `chrome://extensions/`
