@@ -250,3 +250,25 @@ label {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
+
+.btn-kofi {
+  display: block;
+  text-align: center;
+  text-decoration: none;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  transition: all 0.2s ease;
+}
+
+.btn-kofi:hover {
+  background: rgba(255, 94, 91, 0.1);
+  border-color: #FF5E5B;
+  color: #FF5E5B;
+  transform: translateY(-1px);
+}
+
+.btn-kofi:active {
+  transform: translateY(0);
+}

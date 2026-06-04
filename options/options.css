@@ -284,3 +284,37 @@ label {
     transform: translateY(0);
   }
 }
+
+.btn-kofi {
+  display: block;
+  width: 100%;
+  text-align: center;
+  text-decoration: none;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.btn-kofi:hover {
+  background: rgba(255, 94, 91, 0.1);
+  border-color: #FF5E5B;
+  color: #FF5E5B;
+  transform: translateY(-1px);
+}
+
+.btn-kofi:active {
+  transform: translateY(0);
+}
+
+.kofi-section {
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding-top: 24px;
+}
