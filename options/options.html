@@ -1,14 +1,16 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Keep on Settings</title>
   <link rel="stylesheet" href="options.css">
 </head>
+
 <body>
   <div class="options-container">
-    <h1>🎯 Keep on Settings</h1>
+    <h1>Settings</h1>
 
     <!-- Blacklist Section -->
     <section class="settings-section">
@@ -20,12 +22,7 @@
       </div>
 
       <div class="form-group">
-        <input
-          type="text"
-          id="new-domain-input"
-          placeholder="e.g., twitter.com"
-          class="input-field"
-        >
+        <input type="text" id="new-domain-input" placeholder="e.g., twitter.com" class="input-field">
         <button id="add-domain-btn" class="btn btn-secondary">+ Add Domain</button>
       </div>
     </section>
@@ -36,15 +33,7 @@
       <p class="section-description">Time before alarm triggers (seconds)</p>
 
       <div class="slider-group">
-        <input
-          type="range"
-          id="grace-period-slider"
-          min="5"
-          max="60"
-          step="5"
-          value="15"
-          class="slider"
-        >
+        <input type="range" id="grace-period-slider" min="5" max="60" step="5" value="15" class="slider">
         <div class="slider-value">
           <span id="grace-period-value">15</span>s
         </div>
@@ -75,4 +64,5 @@
 
   <script src="options.js"></script>
 </body>
+
 </html>
