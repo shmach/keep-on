@@ -1,4 +1,4 @@
-# Focus Alarm Extension — Developer Guide
+# Keep on Extension — Developer Guide
 
 ## Project Overview
 

@@ -1,4 +1,4 @@
-// Focus Alarm Service Worker
+// Keep on Service Worker
 // Manages session state, monitors tabs, and triggers alarms
 
 const DEFAULTS = {

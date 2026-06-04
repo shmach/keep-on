@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Focus Alarm",
+  "name": "Keep on",
   "version": "1.0.0",
   "description": "Stay focused with smart distraction detection. Alarm on blacklisted sites after a grace period.",
   "permissions": [
@@ -15,9 +15,21 @@
   "background": {
     "service_worker": "background/service_worker.js"
   },
+  "icons": {
+    "16": "assets/keep-on-16x16.png",
+    "32": "assets/keep-on-32x32.png",
+    "48": "assets/keep-on-48x48.png",
+    "128": "assets/keep-on-128x128.png"
+  },
   "action": {
     "default_popup": "popup/popup.html",
-    "default_title": "Focus Alarm"
+    "default_title": "Keep on",
+    "default_icon": {
+      "16": "assets/keep-on-16x16.png",
+      "32": "assets/keep-on-32x32.png",
+      "48": "assets/keep-on-48x48.png",
+      "128": "assets/keep-on-128x128.png"
+    }
   },
   "content_scripts": [
     {
