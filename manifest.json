@@ -46,6 +46,12 @@
     }
   ],
   "options_page": "options/options.html",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "keepon@shmach",
+      "strict_min_version": "109.0"
+    }
+  },
   "commands": {
     "toggle-session": {
       "suggested_key": {
