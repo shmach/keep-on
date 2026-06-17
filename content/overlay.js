@@ -25,7 +25,9 @@ function injectSharedStyles() {
         left: 0;
         width: 100%;
         height: 100%;
-        background: rgba(0, 0, 0, 0.7);
+        background: rgba(0, 0, 0, 0.82);
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -34,50 +36,59 @@ function injectSharedStyles() {
       }
 
       .focus-alarm-card {
-        background: white;
-        border-radius: 12px;
+        background: #161c2d;
+        border: 1px solid #2a3347;
+        border-radius: 16px;
         padding: 32px;
         max-width: 420px;
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        width: 90%;
+        box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(3, 169, 170, 0.08);
         text-align: center;
       }
 
       .focus-alarm-title {
-        margin: 0 0 16px 0;
-        font-size: 28px;
-        color: #d32f2f;
-        font-weight: 600;
+        margin: 0 0 14px 0;
+        font-size: 26px;
+        color: #fd611b;
+        font-weight: 700;
+        letter-spacing: -0.5px;
       }
 
       .focus-alarm-title.success {
-        color: #4CAF50;
+        color: #03a9aa;
       }
 
       .focus-alarm-counter {
-        margin: 0 0 16px 0;
-        font-size: 18px;
-        color: #666;
+        margin: 0 0 14px 0;
+        font-size: 17px;
+        color: #8892a4;
         font-weight: 500;
       }
 
       #distraction-counter {
-        color: #d32f2f;
-        font-weight: 600;
+        color: #fd611b;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
       }
 
       .focus-alarm-message {
-        margin: 0 0 16px 0;
-        font-size: 16px;
-        color: #333;
-        line-height: 1.5;
+        margin: 0 0 14px 0;
+        font-size: 15px;
+        color: #e2e8f0;
+        line-height: 1.6;
       }
 
       .focus-alarm-recommendation {
         margin: 0 0 24px 0;
-        font-size: 14px;
-        color: #666;
+        font-size: 13px;
+        color: #8892a4;
         font-style: italic;
         line-height: 1.5;
+        padding: 10px 14px;
+        background: #1e2537;
+        border-radius: 8px;
+        border-left: 3px solid #03a9aa;
+        text-align: left;
       }
 
       .focus-alarm-btn {
@@ -86,29 +97,39 @@ function injectSharedStyles() {
         padding: 12px 16px;
         margin: 8px 0;
         border: none;
-        border-radius: 6px;
-        font-size: 16px;
-        font-weight: 500;
+        border-radius: 8px;
+        font-size: 15px;
+        font-weight: 600;
         cursor: pointer;
         transition: all 0.2s ease;
+        letter-spacing: 0.2px;
       }
 
       .focus-alarm-btn:not(.secondary) {
-        background: #4CAF50;
-        color: white;
+        background: #03a9aa;
+        color: #fff;
+        box-shadow: 0 2px 14px rgba(3, 169, 170, 0.35);
       }
 
       .focus-alarm-btn:not(.secondary):hover {
-        background: #45a049;
+        background: #029797;
+        box-shadow: 0 4px 20px rgba(3, 169, 170, 0.5);
+        transform: translateY(-1px);
+      }
+
+      .focus-alarm-btn:not(.secondary):active {
+        transform: translateY(0);
       }
 
       .focus-alarm-btn.secondary {
-        background: #e0e0e0;
-        color: #333;
+        background: #1e2537;
+        color: #8892a4;
+        border: 1px solid #2a3347;
       }
 
       .focus-alarm-btn.secondary:hover {
-        background: #d0d0d0;
+        background: #263047;
+        color: #e2e8f0;
       }
     `;
     document.head.appendChild(styleEl);
