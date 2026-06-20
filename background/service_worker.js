@@ -74,15 +74,13 @@ async function endSession(isTimerExpired = false) {
     // Update icon
     updateIcon(false);
 
-    // Only show completion overlay if timer naturally expired (not manually stopped)
+    // Only show completion notification if timer naturally expired (not manually stopped)
     if (isTimerExpired) {
-      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (activeTab) {
-        chrome.tabs.sendMessage(activeTab.id, {
-          type: 'SESSION_COMPLETE',
-          stats
-        }).catch(() => {}); // Tab may not have content script (e.g., chrome:// pages)
-      }
+      showSessionCompleteNotification(stats);
+
+      // Badge shows checkmark until next session
+      chrome.action.setBadgeText({ text: '✓' });
+      chrome.action.setBadgeBackgroundColor({ color: '#fd611b' });
     }
 
     // Notify popup
@@ -93,17 +91,51 @@ async function endSession(isTimerExpired = false) {
   }
 }
 
-// Update extension icon color based on session state
+// Update extension icon color and badge based on session state
 async function updateIcon(isActive) {
   if (isActive) {
-    // Green icon (active)
     const greenIconData = generateSimpleIcon('#4CAF50');
     chrome.action.setIcon({ imageData: greenIconData });
+    chrome.action.setBadgeText({ text: 'ON' });
+    chrome.action.setBadgeBackgroundColor({ color: '#03a9aa' });
   } else {
-    // Gray icon (inactive)
     const grayIconData = generateSimpleIcon('#808080');
     chrome.action.setIcon({ imageData: grayIconData });
+    chrome.action.setBadgeText({ text: '' });
   }
+}
+
+async function getIconDataUrl() {
+  const url = chrome.runtime.getURL('assets/keep-on-128x128.png');
+  const response = await fetch(url);
+  const buffer = await response.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return 'data:image/png;base64,' + btoa(binary);
+}
+
+async function showSessionCompleteNotification(stats) {
+  const durationMin = Math.round(stats.durationMs / 60000);
+  const distractedMin = Math.round(stats.distractedMs / 60000);
+
+  let message = `You focused for ${durationMin} minute${durationMin !== 1 ? 's' : ''}.`;
+  if (stats.distractions > 0) {
+    message += ` ${stats.distractions} distraction${stats.distractions !== 1 ? 's' : ''} (${distractedMin}m lost).`;
+  } else {
+    message += ' No distractions — perfect session!';
+  }
+
+  const iconUrl = await getIconDataUrl();
+
+  chrome.notifications.create('session-complete', {
+    type: 'basic',
+    iconUrl,
+    title: 'Focus session complete!',
+    message
+  });
 }
 
 // Generate a simple icon (128x128 colored square)
