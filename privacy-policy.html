@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy — Keep on</title>
+  <style>
+    *, *::before, *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg-base:     #0f1117;
+      --bg-surface:  #161c2d;
+      --bg-elevated: #1e2537;
+      --border:      #2a3347;
+      --text:        #e2e8f0;
+      --muted:       #8892a4;
+      --primary:     #03a9aa;
+      --accent:      #fd611b;
+      --radius:      10px;
+    }
+
+    html {
+      background: var(--bg-base);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 16px;
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      min-height: 100vh;
+      padding: 48px 20px 80px;
+    }
+
+    /* ── Layout ── */
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+    }
+
+    /* ── Header ── */
+    header {
+      margin-bottom: 48px;
+    }
+
+    .logo-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+
+    .logo-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--primary);
+      box-shadow: 0 0 10px rgba(3, 169, 170, 0.6);
+      flex-shrink: 0;
+    }
+
+    .logo-name {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--primary);
+      letter-spacing: -0.3px;
+    }
+
+    h1 {
+      font-size: 30px;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: -0.5px;
+      line-height: 1.2;
+      margin-bottom: 10px;
+    }
+
+    .effective-date {
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .effective-date span {
+      color: var(--text);
+      font-weight: 500;
+    }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px 32px;
+      margin-bottom: 16px;
+      transition: border-color 0.2s;
+    }
+
+    .card:hover {
+      border-color: rgba(3, 169, 170, 0.3);
+    }
+
+    .card-title {
+      font-size: 14px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--primary);
+      margin-bottom: 14px;
+    }
+
+    p {
+      font-size: 15px;
+      color: var(--muted);
+      line-height: 1.75;
+    }
+
+    p + p {
+      margin-top: 10px;
+    }
+
+    strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    /* ── Summary pill ── */
+    .summary-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      background: rgba(3, 169, 170, 0.1);
+      border: 1px solid rgba(3, 169, 170, 0.25);
+      border-radius: 99px;
+      padding: 6px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--primary);
+      margin-bottom: 24px;
+    }
+
+    .summary-pill svg {
+      flex-shrink: 0;
+    }
+
+    /* ── Permissions table ── */
+    .permissions {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .permission-row {
+      display: grid;
+      grid-template-columns: 140px 1fr;
+      gap: 12px 20px;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--border);
+      align-items: start;
+    }
+
+    .permission-row:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+
+    .permission-row:first-child {
+      padding-top: 0;
+    }
+
+    .perm-name {
+      font-family: 'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', monospace;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--accent);
+      background: rgba(253, 97, 27, 0.08);
+      border: 1px solid rgba(253, 97, 27, 0.2);
+      border-radius: 5px;
+      padding: 3px 8px;
+      display: inline-block;
+      line-height: 1.6;
+      word-break: break-all;
+    }
+
+    .perm-desc {
+      font-size: 14px;
+      color: var(--muted);
+      line-height: 1.6;
+      padding-top: 2px;
+    }
+
+    /* ── No-data badges ── */
+    .badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    .badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    .badge-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--primary);
+      flex-shrink: 0;
+    }
+
+    /* ── Contact ── */
+    .contact-link {
+      color: var(--primary);
+      text-decoration: none;
+      font-weight: 500;
+      border-bottom: 1px solid transparent;
+      transition: border-color 0.15s;
+    }
+
+    .contact-link:hover {
+      border-color: var(--primary);
+    }
+
+    /* ── Footer ── */
+    footer {
+      margin-top: 48px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+      font-size: 13px;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    footer a {
+      color: var(--primary);
+      text-decoration: none;
+    }
+
+    footer a:hover {
+      text-decoration: underline;
+    }
+
+    @media (max-width: 520px) {
+      .card {
+        padding: 22px 20px;
+      }
+
+      .permission-row {
+        grid-template-columns: 1fr;
+        gap: 6px;
+      }
+
+      h1 {
+        font-size: 24px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <header>
+      <div class="logo-row">
+        <div class="logo-dot"></div>
+        <span class="logo-name">Keep on</span>
+      </div>
+      <h1>Privacy Policy</h1>
+      <p class="effective-date">Effective date: <span>June 20, 2026</span></p>
+    </header>
+
+    <div class="summary-pill">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+      </svg>
+      Your data never leaves your device
+    </div>
+
+    <div class="card">
+      <div class="card-title">Overview</div>
+      <p>
+        Keep on is a Chrome extension that helps you stay focused by detecting when you visit
+        distracting websites during a timed session. It is built and maintained by
+        <strong>Samuel Machado</strong>.
+      </p>
+      <p style="margin-top: 12px;">
+        This extension <strong>does not collect, store remotely, or transmit any personal data.</strong>
+        All session state and settings are stored exclusively on your device using
+        <strong>Chrome's local storage API</strong> and are never sent anywhere.
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="card-title">What We Don't Do</div>
+      <div class="badges">
+        <div class="badge"><div class="badge-dot"></div>No data collection</div>
+        <div class="badge"><div class="badge-dot"></div>No remote servers</div>
+        <div class="badge"><div class="badge-dot"></div>No analytics</div>
+        <div class="badge"><div class="badge-dot"></div>No advertising</div>
+        <div class="badge"><div class="badge-dot"></div>No account required</div>
+        <div class="badge"><div class="badge-dot"></div>No third-party services</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Permissions &amp; Why We Need Them</div>
+      <div class="permissions">
+        <div class="permission-row">
+          <span class="perm-name">tabs</span>
+          <span class="perm-desc">Detects when you switch to a tab on a blacklisted site so the grace-period timer can begin.</span>
+        </div>
+        <div class="permission-row">
+          <span class="perm-name">storage</span>
+          <span class="perm-desc">Saves your session state and settings (blacklist, grace period, sound preference) locally on your device only.</span>
+        </div>
+        <div class="permission-row">
+          <span class="perm-name">alarms</span>
+          <span class="perm-desc">Manages the session countdown timer reliably, even when the service worker sleeps.</span>
+        </div>
+        <div class="permission-row">
+          <span class="perm-name">activeTab</span>
+          <span class="perm-desc">Reads the URL of the currently active tab to check whether it matches your blacklist.</span>
+        </div>
+        <div class="permission-row">
+          <span class="perm-name">notifications</span>
+          <span class="perm-desc">Shows a native browser notification when your focus session completes.</span>
+        </div>
+        <div class="permission-row">
+          <span class="perm-name">&lt;all_urls&gt;</span>
+          <span class="perm-desc">Required to inject the focus overlay into any page you visit, since blacklisted sites can be any domain. No page content is read or recorded.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Local Data Only</div>
+      <p>
+        The extension stores the following data in <strong>chrome.storage.local</strong> on your device:
+      </p>
+      <p style="margin-top: 12px;">
+        <strong>Session state</strong> — whether a session is active, when it started, its duration,
+        and distraction counts. <strong>Settings</strong> — your blacklist, grace period, and
+        alarm sound preference. This data is never transmitted and is cleared when you uninstall
+        the extension.
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Changes to This Policy</div>
+      <p>
+        If this policy ever changes, the updated version will be published at this same URL with
+        a new effective date. Significant changes will also be noted in the extension's Chrome
+        Web Store changelog.
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Contact</div>
+      <p>
+        Questions or concerns? Reach out at
+        <a href="mailto:mmachado0222@gmail.com" class="contact-link">mmachado0222@gmail.com</a>.
+      </p>
+    </div>
+
+    <footer>
+      <span>Keep on &mdash; Focus session extension for Chrome</span>
+      <a href="https://github.com/shmach/keep-on" target="_blank" rel="noopener">GitHub</a>
+    </footer>
+
+  </div>
+</body>
+</html>
