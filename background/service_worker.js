@@ -44,6 +44,22 @@ async function startSession(config) {
 
   // Update icon
   updateIcon(true);
+
+  // If the currently active tab is already blacklisted, start grace period immediately
+  // (onActivated won't fire because no tab switch occurred)
+  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (activeTab && activeTab.id !== session.focusTabId && activeTab.url) {
+    const blacklisted = await isBlacklisted(activeTab.url);
+    if (blacklisted) {
+      const storedSettings = await chrome.storage.local.get('settings');
+      const graceMs = storedSettings.settings.gracePeriodMs;
+      gracePeriodStartTimes.set(activeTab.id, Date.now());
+      const timeoutId = setTimeout(() => {
+        triggerOverlay(activeTab.id);
+      }, graceMs);
+      gracePeriodTimeouts.set(activeTab.id, timeoutId);
+    }
+  }
 }
 
 // End the session and record stats
@@ -52,6 +68,12 @@ async function endSession(isTimerExpired = false) {
   const session = result.session;
 
   if (session && session.active) {
+    // If the distraction overlay is still showing when the session ends,
+    // accumulate that in-progress distraction time before computing stats
+    if (session.isPaused && session.pausedStartTime) {
+      session.distractedMs += Date.now() - session.pausedStartTime;
+    }
+
     // Capture stats before mutating session state
     const stats = {
       durationMs: session.durationMs,
@@ -294,12 +316,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     });
     return true; // async response
   } else if (request.type === 'OVERLAY_DISMISSED') {
-    // Resume session timer
+    // Resume session timer and record distracted time
     chrome.storage.local.get('session', (result) => {
       const session = result.session;
       if (session && session.active && session.isPaused) {
         const pauseDuration = Date.now() - session.pausedStartTime;
         session.pausedMs += pauseDuration;
+        session.distractedMs += pauseDuration;
         session.isPaused = false;
         delete session.pausedStartTime;
         chrome.storage.local.set({ session });
