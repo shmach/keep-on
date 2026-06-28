@@ -4,149 +4,20 @@
 let overlayElement = null;
 let overlayStartTime = null;
 let distraction = null;
+let beforeUnloadHandler = null;
 
-function injectSharedStyles() {
-  if (!document.getElementById('focus-alarm-styles')) {
-    const styleEl = document.createElement('style');
-    styleEl.id = 'focus-alarm-styles';
-    styleEl.textContent = `
-      #focus-alarm-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        z-index: 2147483647;
-      }
-
-      .focus-alarm-backdrop {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.82);
-        backdrop-filter: blur(4px);
-        -webkit-backdrop-filter: blur(4px);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        z-index: 2147483647;
-      }
-
-      .focus-alarm-card {
-        background: #161c2d;
-        border: 1px solid #2a3347;
-        border-radius: 16px;
-        padding: 32px;
-        max-width: 420px;
-        width: 90%;
-        box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(3, 169, 170, 0.08);
-        text-align: center;
-      }
-
-      .focus-alarm-title {
-        margin: 0 0 14px 0;
-        font-size: 26px;
-        color: #fd611b;
-        font-weight: 700;
-        letter-spacing: -0.5px;
-      }
-
-      .focus-alarm-title.success {
-        color: #03a9aa;
-      }
-
-      .focus-alarm-counter {
-        margin: 0 0 14px 0;
-        font-size: 17px;
-        color: #8892a4;
-        font-weight: 500;
-      }
-
-      #distraction-counter {
-        color: #fd611b;
-        font-weight: 700;
-        font-variant-numeric: tabular-nums;
-      }
-
-      .focus-alarm-message {
-        margin: 0 0 14px 0;
-        font-size: 15px;
-        color: #e2e8f0;
-        line-height: 1.6;
-      }
-
-      .focus-alarm-recommendation {
-        margin: 0 0 24px 0;
-        font-size: 13px;
-        color: #8892a4;
-        font-style: italic;
-        line-height: 1.5;
-        padding: 10px 14px;
-        background: #1e2537;
-        border-radius: 8px;
-        border-left: 3px solid #03a9aa;
-        text-align: left;
-      }
-
-      .focus-alarm-btn {
-        display: block;
-        width: 100%;
-        padding: 12px 16px;
-        margin: 8px 0;
-        border: none;
-        border-radius: 8px;
-        font-size: 15px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        letter-spacing: 0.2px;
-      }
-
-      .focus-alarm-btn:not(.secondary) {
-        background: #03a9aa;
-        color: #fff;
-        box-shadow: 0 2px 14px rgba(3, 169, 170, 0.35);
-      }
-
-      .focus-alarm-btn:not(.secondary):hover {
-        background: #029797;
-        box-shadow: 0 4px 20px rgba(3, 169, 170, 0.5);
-        transform: translateY(-1px);
-      }
-
-      .focus-alarm-btn:not(.secondary):active {
-        transform: translateY(0);
-      }
-
-      .focus-alarm-btn.secondary {
-        background: #1e2537;
-        color: #8892a4;
-        border: 1px solid #2a3347;
-      }
-
-      .focus-alarm-btn.secondary:hover {
-        background: #263047;
-        color: #e2e8f0;
-      }
-    `;
-    document.head.appendChild(styleEl);
-  }
-}
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'SHOW_OVERLAY') {
-    showAlarmOverlay(request.sessionInfo, request.distractionStartedAt);
+    showAlarmOverlay(request.sessionInfo, request.distractionStartedAt, request.alarmSound !== false);
     sendResponse({ success: true });
-  } else if (request.type === 'SESSION_COMPLETE') {
+  } else if (request.type === 'SESSION_ENDED') {
     showSessionCompleteOverlay(request.stats);
     sendResponse({ success: true });
   }
 });
 
-function showAlarmOverlay(sessionInfo, distractionStartedAt) {
+function showAlarmOverlay(sessionInfo, distractionStartedAt, playSound = true) {
   if (overlayElement) {
     return; // Already showing
   }
@@ -181,11 +52,9 @@ function showAlarmOverlay(sessionInfo, distractionStartedAt) {
 
   document.documentElement.appendChild(overlayElement);
 
-  // Inject shared styles if not already there
-  injectSharedStyles();
-
-  // Play alarm sound
-  playAlarmSound();
+  if (playSound) {
+    playAlarmSound();
+  }
 
   // Event listeners
   document.getElementById('focus-alarm-dismiss-btn').addEventListener('click', dismissOverlay);
@@ -203,11 +72,8 @@ function showAlarmOverlay(sessionInfo, distractionStartedAt) {
     }
   }, 1000);
 
-  // Auto-dismiss if tab URL changes
-  const handleUrlChange = () => {
-    dismissOverlay();
-  };
-  window.addEventListener('beforeunload', handleUrlChange);
+  beforeUnloadHandler = () => dismissOverlay();
+  window.addEventListener('beforeunload', beforeUnloadHandler);
 }
 
 function dismissOverlay() {
@@ -217,6 +83,11 @@ function dismissOverlay() {
   overlayElement = null;
   overlayStartTime = null;
   distraction = null;
+
+  if (beforeUnloadHandler) {
+    window.removeEventListener('beforeunload', beforeUnloadHandler);
+    beforeUnloadHandler = null;
+  }
 
   // Notify service worker that overlay was dismissed
   chrome.runtime.sendMessage({
@@ -263,9 +134,6 @@ function showSessionCompleteOverlay(stats) {
   `;
 
   document.documentElement.appendChild(overlayElement);
-
-  // Inject shared styles if not already present
-  injectSharedStyles();
 
   // Close button handler
   document.getElementById('focus-alarm-close-btn').addEventListener('click', () => {

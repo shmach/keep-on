@@ -37,6 +37,7 @@ async function loadFocusTabs() {
 // Update UI based on session state
 async function updateSessionState() {
   chrome.runtime.sendMessage({ type: 'GET_SESSION' }, (response) => {
+    if (!response) return;
     const session = response.session;
 
     if (!session || !session.active) {
@@ -75,7 +76,7 @@ function startLiveUpdates(session) {
 
   updateInterval = setInterval(() => {
     chrome.runtime.sendMessage({ type: 'GET_SESSION' }, (response) => {
-      if (response.session && response.session.active) {
+      if (response && response.session && response.session.active) {
         currentSession = response.session;
         updateTimerDisplay(response.session);
         updateDistractionCount(response.session);

@@ -31,8 +31,7 @@ async function startSession(config) {
     focusTabId: config.focusTabId || null,
     distractions: 0,
     distractedMs: 0,
-    lastBlacklistVisit: null,
-    pausedMs: 0,  // Track total paused time
+    pausedMs: 0,
     isPaused: false
   };
 
@@ -203,6 +202,9 @@ async function triggerOverlay(tabId) {
 
     await chrome.storage.local.set({ session });
 
+    const settingsResult = await chrome.storage.local.get('settings');
+    const alarmSound = settingsResult.settings?.alarmSound ?? true;
+
     // Get the grace period start time
     const gracePeriodStartTime = gracePeriodStartTimes.get(tabId) || Date.now();
 
@@ -210,7 +212,8 @@ async function triggerOverlay(tabId) {
     chrome.tabs.sendMessage(tabId, {
       type: 'SHOW_OVERLAY',
       sessionInfo: session,
-      distractionStartedAt: gracePeriodStartTime
+      distractionStartedAt: gracePeriodStartTime,
+      alarmSound
     }).catch(() => {});
   }
 
