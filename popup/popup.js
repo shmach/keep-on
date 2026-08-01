@@ -24,12 +24,21 @@ async function init() {
 // Load available tabs for focus tab selection
 async function loadFocusTabs() {
   const tabs = await chrome.tabs.query({});
-  focusTabSelect.innerHTML = '<option value="">-- Current Tab --</option>';
+  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+  focusTabSelect.innerHTML = '';
+
+  const noneOption = document.createElement('option');
+  noneOption.value = '';
+  noneOption.textContent = '-- No focus tab --';
+  focusTabSelect.appendChild(noneOption);
 
   tabs.forEach((tab) => {
     const option = document.createElement('option');
     option.value = tab.id;
-    option.textContent = tab.title.substring(0, 40);
+    const title = (tab.title || tab.url || 'Untitled').substring(0, 40);
+    const isCurrent = activeTab && tab.id === activeTab.id;
+    option.textContent = isCurrent ? `${title} (current)` : title;
     focusTabSelect.appendChild(option);
   });
 }
@@ -44,7 +53,7 @@ async function updateSessionState() {
       showInactiveState();
     } else {
       showActiveState(session);
-      startLiveUpdates(session);
+      startLiveUpdates();
     }
   });
 }
@@ -56,6 +65,7 @@ function showInactiveState() {
 
   if (updateInterval) {
     clearInterval(updateInterval);
+    updateInterval = null;
   }
 }
 
@@ -69,45 +79,42 @@ function showActiveState(session) {
   updateDistractionCount(session);
 }
 
-function startLiveUpdates(session) {
+function startLiveUpdates() {
   if (updateInterval) {
     clearInterval(updateInterval);
   }
 
   updateInterval = setInterval(() => {
     chrome.runtime.sendMessage({ type: 'GET_SESSION' }, (response) => {
-      if (response && response.session && response.session.active) {
-        currentSession = response.session;
-        updateTimerDisplay(response.session);
-        updateDistractionCount(response.session);
+      if (!response) return;
+      const session = response.session;
+
+      if (session && session.active) {
+        currentSession = session;
+        updateTimerDisplay(session);
+        updateDistractionCount(session);
+      } else if (session) {
+        // Service worker ended the session while the popup was open
+        showSessionEnded(session);
       } else {
-        clearInterval(updateInterval);
+        showInactiveState();
       }
     });
   }, 1000);
 }
 
+function formatMs(ms) {
+  const minutes = Math.floor(ms / 60000);
+  const seconds = Math.floor((ms % 60000) / 1000);
+  return `${minutes}m ${seconds}s`;
+}
+
 function updateTimerDisplay(session) {
-  let elapsed = Date.now() - session.startedAt;
+  // `endsAt` is the single source of truth: the service worker pushes it
+  // forward while a distraction is paused, so this matches the real alarm
+  const remaining = Math.max(0, session.endsAt - Date.now());
 
-  // Subtract paused time from elapsed
-  elapsed -= session.pausedMs || 0;
-
-  // If currently paused, subtract the current pause duration
-  if (session.isPaused && session.pausedStartTime) {
-    elapsed -= (Date.now() - session.pausedStartTime);
-  }
-
-  const remaining = Math.max(0, session.durationMs - elapsed);
-  const minutes = Math.floor(remaining / 60000);
-  const seconds = Math.floor((remaining % 60000) / 1000);
-
-  const timeLeftEl = document.getElementById('time-left');
-  timeLeftEl.textContent = `${minutes}m ${seconds}s`;
-
-  if (remaining === 0) {
-    showSessionEnded(session);
-  }
+  document.getElementById('time-left').textContent = formatMs(remaining);
 }
 
 function updateDistractionCount(session) {
@@ -116,34 +123,41 @@ function updateDistractionCount(session) {
 }
 
 function showSessionEnded(session) {
-  clearInterval(updateInterval);
+  if (updateInterval) {
+    clearInterval(updateInterval);
+    updateInterval = null;
+  }
 
   sessionInactiveDiv.style.display = 'none';
   sessionActiveDiv.style.display = 'none';
   sessionEndedDiv.style.display = 'block';
 
-  const minutes = Math.floor(session.durationMs / 60000);
-  const seconds = Math.floor((session.durationMs % 60000) / 1000);
-  document.getElementById('stat-duration').textContent = `${minutes}m ${seconds}s`;
+  document.getElementById('stat-duration').textContent = formatMs(session.durationMs);
   document.getElementById('stat-distractions').textContent = session.distractions;
-
-  const distractedMin = Math.floor(session.distractedMs / 60000);
-  const distractedSec = Math.floor((session.distractedMs % 60000) / 1000);
-  document.getElementById('stat-distracted-time').textContent = `${distractedMin}m ${distractedSec}s`;
+  document.getElementById('stat-distracted-time').textContent = formatMs(session.distractedMs);
 }
 
 // Event listeners
 startBtn.addEventListener('click', async () => {
-  const duration = parseInt(durationInput.value) * 60000;
-  const focusTabId = focusTabSelect.value ? parseInt(focusTabSelect.value) : null;
+  const minutes = parseInt(durationInput.value, 10);
+  if (!Number.isFinite(minutes) || minutes < 1) {
+    alert('Please enter a session duration of at least 1 minute');
+    return;
+  }
+
+  const focusTabId = focusTabSelect.value ? parseInt(focusTabSelect.value, 10) : null;
 
   chrome.runtime.sendMessage({
     type: 'START_SESSION',
     config: {
-      durationMs: duration,
+      durationMs: minutes * 60000,
       focusTabId
     }
-  }, () => {
+  }, (response) => {
+    if (response && response.success === false) {
+      alert(response.error || 'Could not start the session');
+      return;
+    }
     updateSessionState();
   });
 });
@@ -159,7 +173,15 @@ stopBtn.addEventListener('click', () => {
 });
 
 startNewBtn.addEventListener('click', () => {
+  loadFocusTabs();
   showInactiveState();
+});
+
+// Session may end while the popup is open
+chrome.runtime.onMessage.addListener((request) => {
+  if (request.type === 'SESSION_ENDED' && currentSession) {
+    showSessionEnded({ ...currentSession, ...request.stats });
+  }
 });
 
 // Initialize on load

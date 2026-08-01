@@ -67,16 +67,31 @@ Adjust the blacklist, grace period, and alarm sound from the **Settings** page (
 │   ├── options.html           # Settings: blacklist, grace period, alarm sound
 │   ├── options.js
 │   └── options.css
-└── assets/
-    └── icons/                 # Extension icons
+├── lib/
+│   └── shared.js              # Default settings + domain normalization/matching
+├── privacy-policy.html        # Privacy policy published for the Chrome Web Store
+└── assets/                    # Icons, logo, banner, store screenshots
 ```
 
 ## How It Works
 
-- The **service worker** holds the session state machine. It listens to `chrome.tabs.onActivated` / `onUpdated`, extracts each tab's hostname, and checks it against the blacklist.
-- On a blacklist match it schedules a per-tab `chrome.alarms` grace-period timer. Leave the tab in time and the alarm is cleared; otherwise it fires and tells the content script to show the overlay.
-- Long-running timers use `chrome.alarms` (not `setTimeout`) so they survive the service worker sleeping after ~5 min of inactivity.
+- The **service worker** holds the session state machine. It listens to `chrome.tabs.onActivated` / `onUpdated` / `onRemoved`, extracts each tab's hostname, and matches it against the blacklist (exact host or subdomain, so `notyoutube.com` never counts as `youtube.com`).
+- On a blacklist match it starts a per-tab grace period. Leave the tab in time and it's cancelled; otherwise the overlay is shown in that tab.
+- **The session clock pauses while the overlay is up.** Distracted time is never charged against your focus time: the session's target end time is pushed forward by exactly the paused duration, and the `session-end` alarm is rescheduled to match — so the countdown you see and the alarm that actually fires can't drift apart.
+- A distraction ends when you dismiss the overlay, switch tabs, navigate away, or close the tab.
+- **Timers:** the session end uses `chrome.alarms` (`when: endsAt`), which survives the service worker sleeping. Grace periods can be as short as 5s — below the ~30s floor Chrome enforces on alarms — so they run on `setTimeout`, with their start time persisted to `chrome.storage.local` and a 30s watchdog alarm that rebuilds them whenever the worker has been asleep.
 - Session state and settings live in `chrome.storage.local`, so they persist across reloads.
+
+## Manual Smoke Test
+
+There's no automated suite (the behaviour only exists inside a real browser). After changing session, tab or timer logic, load the unpacked extension and check:
+
+1. Start a 2-minute session → the popup counts down and the toolbar badge reads `ON`.
+2. Open a blacklisted site → the overlay appears after the grace period, with the alarm sound if enabled.
+3. Leave before the grace period is up → no overlay.
+4. Sit on the overlay for ~30s, then switch tabs → the overlay closes on its own and the countdown resumes where it stopped (it does **not** lose those 30s).
+5. Let the session run out → system notification, `✓` badge, and stats in the popup.
+6. In Settings, add `https://Example.com/path` → it's stored as `example.com`; visiting `notexample.com` triggers nothing.
 
 ## Debugging
 

@@ -2,17 +2,18 @@
 // Runs on all tabs, listens for alarm messages from service worker
 
 let overlayElement = null;
-let overlayStartTime = null;
+let counterInterval = null;
 let distraction = null;
 let beforeUnloadHandler = null;
-
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'SHOW_OVERLAY') {
     showAlarmOverlay(request.sessionInfo, request.distractionStartedAt, request.alarmSound !== false);
     sendResponse({ success: true });
-  } else if (request.type === 'SESSION_ENDED') {
-    showSessionCompleteOverlay(request.stats);
+  } else if (request.type === 'HIDE_OVERLAY') {
+    // Service worker already closed out the distraction (user switched tabs,
+    // session ended), so tear down without reporting it again
+    removeOverlay();
     sendResponse({ success: true });
   }
 });
@@ -22,12 +23,14 @@ function showAlarmOverlay(sessionInfo, distractionStartedAt, playSound = true) {
     return; // Already showing
   }
 
-  overlayStartTime = Date.now();
   distraction = {
     sessionStartedAt: sessionInfo.startedAt,
     focusTabId: sessionInfo.focusTabId,
-    distractionStartedAt: distractionStartedAt || overlayStartTime
+    distractionStartedAt: distractionStartedAt || Date.now()
   };
+
+  const minutesIn = Math.round((Date.now() - sessionInfo.startedAt) / 1000 / 60);
+  const hasFocusTab = Number.isInteger(sessionInfo.focusTabId);
 
   // Create overlay container
   overlayElement = document.createElement('div');
@@ -40,12 +43,13 @@ function showAlarmOverlay(sessionInfo, distractionStartedAt, playSound = true) {
           You've been here for <span id="distraction-counter">0</span>s
         </p>
         <p class="focus-alarm-message" id="focus-alarm-message">
-          You're ${Math.round((Date.now() - sessionInfo.startedAt) / 1000 / 60)} min into your session — stay sharp!
+          You're ${minutesIn} min into your session — stay sharp!
         </p>
         <p class="focus-alarm-recommendation">
           Consider closing this tab to return to your focus session.
         </p>
-        <button id="focus-alarm-dismiss-btn" class="focus-alarm-btn">Dismiss</button>
+        ${hasFocusTab ? '<button id="focus-alarm-back-btn" class="focus-alarm-btn">Back to focus tab</button>' : ''}
+        <button id="focus-alarm-dismiss-btn" class="focus-alarm-btn${hasFocusTab ? ' secondary' : ''}">Dismiss</button>
       </div>
     </div>
   `;
@@ -59,10 +63,19 @@ function showAlarmOverlay(sessionInfo, distractionStartedAt, playSound = true) {
   // Event listeners
   document.getElementById('focus-alarm-dismiss-btn').addEventListener('click', dismissOverlay);
 
+  const backBtn = document.getElementById('focus-alarm-back-btn');
+  if (backBtn) {
+    backBtn.addEventListener('click', () => {
+      chrome.runtime.sendMessage({ type: 'FOCUS_TAB' }).catch(() => {});
+      dismissOverlay();
+    });
+  }
+
   // Update counter every second
-  const counterInterval = setInterval(() => {
+  counterInterval = setInterval(() => {
     if (!overlayElement || !overlayElement.parentElement) {
       clearInterval(counterInterval);
+      counterInterval = null;
       return;
     }
     const elapsed = Math.round((Date.now() - distraction.distractionStartedAt) / 1000);
@@ -76,72 +89,33 @@ function showAlarmOverlay(sessionInfo, distractionStartedAt, playSound = true) {
   window.addEventListener('beforeunload', beforeUnloadHandler);
 }
 
-function dismissOverlay() {
+// Tear down the overlay without notifying the service worker
+function removeOverlay() {
   if (overlayElement && overlayElement.parentElement) {
     overlayElement.parentElement.removeChild(overlayElement);
   }
   overlayElement = null;
-  overlayStartTime = null;
   distraction = null;
+
+  if (counterInterval) {
+    clearInterval(counterInterval);
+    counterInterval = null;
+  }
 
   if (beforeUnloadHandler) {
     window.removeEventListener('beforeunload', beforeUnloadHandler);
     beforeUnloadHandler = null;
   }
-
-  // Notify service worker that overlay was dismissed
-  chrome.runtime.sendMessage({
-    type: 'OVERLAY_DISMISSED'
-  }).catch(() => {});
 }
 
-function formatMs(ms) {
-  const m = Math.floor(ms / 60000);
-  const s = Math.floor((ms % 60000) / 1000);
-  return `${m}m ${s}s`;
-}
+function dismissOverlay() {
+  const wasShowing = overlayElement !== null;
+  removeOverlay();
 
-function getMotivationalMessage(distractions) {
-  if (distractions === 0) return 'Perfect focus! Outstanding work.';
-  if (distractions <= 2)  return 'Great job! You stayed on track.';
-  if (distractions <= 5)  return 'Good session — keep reducing distractions.';
-  return 'Tough session. You\'ll do better next time!';
-}
-
-function showSessionCompleteOverlay(stats) {
-  // Dismiss any in-progress distraction overlay first
-  if (overlayElement) {
-    dismissOverlay();
+  if (wasShowing) {
+    // Notify service worker so it resumes the session clock
+    chrome.runtime.sendMessage({ type: 'OVERLAY_DISMISSED' }).catch(() => {});
   }
-
-  overlayElement = document.createElement('div');
-  overlayElement.id = 'focus-alarm-overlay';
-  overlayElement.innerHTML = `
-    <div class="focus-alarm-backdrop">
-      <div class="focus-alarm-card">
-        <h1 class="focus-alarm-title success">🎉 Session Complete!</h1>
-        <p class="focus-alarm-message">
-          <strong>Duration:</strong> ${formatMs(stats.durationMs)}<br>
-          <strong>Distractions:</strong> ${stats.distractions}<br>
-          <strong>Time distracted:</strong> ${formatMs(stats.distractedMs)}
-        </p>
-        <p class="focus-alarm-recommendation">
-          ${getMotivationalMessage(stats.distractions)}
-        </p>
-        <button id="focus-alarm-close-btn" class="focus-alarm-btn">Close</button>
-      </div>
-    </div>
-  `;
-
-  document.documentElement.appendChild(overlayElement);
-
-  // Close button handler
-  document.getElementById('focus-alarm-close-btn').addEventListener('click', () => {
-    if (overlayElement && overlayElement.parentElement) {
-      overlayElement.parentElement.removeChild(overlayElement);
-    }
-    overlayElement = null;
-  });
 }
 
 function playAlarmSound() {
