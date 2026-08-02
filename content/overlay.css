@@ -115,3 +115,48 @@
   background: #263047;
   color: #e2e8f0;
 }
+
+.coach-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.coach-image {
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.coach-phrase-container {
+  max-width: 100%;
+  text-align: center;
+  background: #fff;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid #000;
+  position: relative;
+}
+
+.coach-phrase-container::before {
+  content: '';
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 20px;
+  aspect-ratio: 1/cos(30deg);
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  background: #fff;
+}
+
+.coach-phrase {
+  font-size: 12px;
+  line-height: 1.4;
+  color: #000;
+  font-weight: 500;
+}

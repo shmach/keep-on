@@ -18,22 +18,22 @@ let updateInterval = null;
 // Coach controller 
 class CoachController {
   constructor(
-    imageElement = document.getElementById('coach-image'),
-    phraseElement = document.getElementById('coach-phrase'),
+    imagesElements = document.querySelectorAll('[data-coach-image]'),
+    phrasesElements = document.querySelectorAll('[data-coach-phrase]'),
   ) {
-    this.imageElement = imageElement;
-    this.phraseElement = phraseElement;
+    this.imagesElements = imagesElements;
+    this.phrasesElements = phrasesElements;
   }
 
   updateCoachMoment(context, data) {
     const { image, phrase } = getCoachMoment(context, data);
 
     if (image) {
-      this.imageElement.src = image;
+      this.imagesElements.forEach(el => el.src = image);
     };
 
     if (phrase) {
-      this.phraseElement.textContent = phrase;
+      this.phrasesElements.forEach(el => el.textContent = phrase);
     };
   };
 }
@@ -99,6 +99,9 @@ function showActiveState(session) {
   sessionInactiveDiv.style.display = 'none';
   sessionActiveDiv.style.display = 'block';
   sessionEndedDiv.style.display = 'none';
+
+  console.log('Session active: ', session);
+  coachController.updateCoachMoment('active', {});
 
   currentSession = session;
   updateTimerDisplay(session);

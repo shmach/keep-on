@@ -45,9 +45,12 @@ function showAlarmOverlay(sessionInfo, distractionStartedAt, playSound = true) {
         <p class="focus-alarm-message" id="focus-alarm-message">
           You're ${minutesIn} min into your session — stay sharp!
         </p>
-        <p class="focus-alarm-recommendation">
-          Consider closing this tab to return to your focus session.
-        </p>
+      <div class="coach-container">
+        <img data-coach-image src="#" alt="Coach Max" class="coach-image">
+        <div class="coach-phrase-container">
+          <span data-coach-phrase class="coach-phrase"></span>
+        </div>
+      </div>
         ${hasFocusTab ? '<button id="focus-alarm-back-btn" class="focus-alarm-btn">Back to focus tab</button>' : ''}
         <button id="focus-alarm-dismiss-btn" class="focus-alarm-btn${hasFocusTab ? ' secondary' : ''}">Dismiss</button>
       </div>
@@ -55,6 +58,15 @@ function showAlarmOverlay(sessionInfo, distractionStartedAt, playSound = true) {
   `;
 
   document.documentElement.appendChild(overlayElement);
+
+  const { image, phrase } = getCoachMoment('distraction_1', { distractions: sessionInfo.distraction });
+  const coachImageEl = overlayElement.querySelector('[data-coach-image]');
+  const coachPhraseEl = overlayElement.querySelector('[data-coach-phrase]');
+
+  if (image) coachImageEl.src = image;
+  if (phrase) coachPhraseEl.textContent = phrase;
+
+  coachImageEl.addEventListener('error', () => coachImageEl.style.display = 'none');
 
   if (playSound) {
     playAlarmSound();
@@ -66,7 +78,7 @@ function showAlarmOverlay(sessionInfo, distractionStartedAt, playSound = true) {
   const backBtn = document.getElementById('focus-alarm-back-btn');
   if (backBtn) {
     backBtn.addEventListener('click', () => {
-      chrome.runtime.sendMessage({ type: 'FOCUS_TAB' }).catch(() => {});
+      chrome.runtime.sendMessage({ type: 'FOCUS_TAB' }).catch(() => { });
       dismissOverlay();
     });
   }
@@ -114,7 +126,7 @@ function dismissOverlay() {
 
   if (wasShowing) {
     // Notify service worker so it resumes the session clock
-    chrome.runtime.sendMessage({ type: 'OVERLAY_DISMISSED' }).catch(() => {});
+    chrome.runtime.sendMessage({ type: 'OVERLAY_DISMISSED' }).catch(() => { });
   }
 }
 
