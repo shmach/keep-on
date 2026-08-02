@@ -59,7 +59,11 @@ function showAlarmOverlay(sessionInfo, distractionStartedAt, playSound = true) {
 
   document.documentElement.appendChild(overlayElement);
 
-  const { image, phrase } = getCoachMoment('distraction_1', { distractions: sessionInfo.distraction });
+  const { image, phrase } = getCoachMoment(
+    `distraction_${sessionInfo.distraction > 3 ? 'infinity' : sessionInfo.distraction}`,
+    { distractions: sessionInfo.distraction }
+  );
+
   const coachImageEl = overlayElement.querySelector('[data-coach-image]');
   const coachPhraseEl = overlayElement.querySelector('[data-coach-phrase]');
 

@@ -184,16 +184,14 @@ async function endDistraction(session) {
 // Icon, notification
 // ---------------------------------------------------------------------------
 
-// Update extension icon color and badge based on session state
+// Update extension icon (full-color when active, grayscale when stopped) and badge
 async function updateIcon(isActive) {
+  const iconData = await generateStateIcon(isActive);
+  chrome.action.setIcon({ imageData: iconData });
   if (isActive) {
-    const greenIconData = generateSimpleIcon('#4CAF50');
-    chrome.action.setIcon({ imageData: greenIconData });
     chrome.action.setBadgeText({ text: 'ON' });
     chrome.action.setBadgeBackgroundColor({ color: '#03a9aa' });
   } else {
-    const grayIconData = generateSimpleIcon('#808080');
-    chrome.action.setIcon({ imageData: grayIconData });
     chrome.action.setBadgeText({ text: '' });
   }
 }
@@ -231,12 +229,18 @@ async function showSessionCompleteNotification(stats) {
   });
 }
 
-// Generate a simple icon (128x128 colored square)
-function generateSimpleIcon(color) {
+// Render the real extension logo, grayscale when the session is inactive
+async function generateStateIcon(isActive) {
+  const url = chrome.runtime.getURL('assets/keep-on-128x128.png');
+  const response = await fetch(url);
+  const bitmap = await createImageBitmap(await response.blob());
+
   const canvas = new OffscreenCanvas(128, 128);
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle = color;
-  ctx.fillRect(0, 0, 128, 128);
+  if (!isActive) {
+    ctx.filter = 'grayscale(100%)';
+  }
+  ctx.drawImage(bitmap, 0, 0, 128, 128);
   return ctx.getImageData(0, 0, 128, 128);
 }
 
