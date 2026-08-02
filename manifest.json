@@ -37,6 +37,7 @@
         "<all_urls>"
       ],
       "js": [
+        "lib/coach.js",
         "content/overlay.js"
       ],
       "css": [
@@ -53,5 +54,15 @@
       },
       "description": "Toggle focus session on/off"
     }
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "assets/coaches/max/coach-test.png"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
 }

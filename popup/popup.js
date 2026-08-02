@@ -15,10 +15,36 @@ const sessionEndedDiv = document.getElementById('session-ended');
 let currentSession = null;
 let updateInterval = null;
 
+// Coach controller 
+class CoachController {
+  constructor(
+    imageElement = document.getElementById('coach-image'),
+    phraseElement = document.getElementById('coach-phrase'),
+  ) {
+    this.imageElement = imageElement;
+    this.phraseElement = phraseElement;
+  }
+
+  updateCoachMoment(context, data) {
+    const { image, phrase } = getCoachMoment(context, data);
+
+    if (image) {
+      this.imageElement.src = image;
+    };
+
+    if (phrase) {
+      this.phraseElement.textContent = phrase;
+    };
+  };
+}
+
+const coachController = new CoachController();
+
 // Initialize popup
 async function init() {
   await loadFocusTabs();
   await updateSessionState();
+  coachController.updateCoachMoment('welcome', {})
 }
 
 // Load available tabs for focus tab selection
