@@ -59,9 +59,24 @@ function showAlarmOverlay(sessionInfo, distractionStartedAt, playSound = true) {
 
   document.documentElement.appendChild(overlayElement);
 
+  let distractionCount;
+
+  if (sessionInfo.distraction > 3) {
+    distractionCount = 'infinity';
+  } else if (sessionInfo.distraction > 0) {
+    distractionCount = sessionInfo.distraction;
+  } else {
+    distractionCount = 1;
+  }
+
   const { image, phrase } = getCoachMoment(
-    `distraction_${sessionInfo.distraction > 3 ? 'infinity' : sessionInfo.distraction}`,
-    { distractions: sessionInfo.distraction }
+    "distraction",
+    {
+      distractions: distractionCount,
+      minutesIn: minutesIn,
+      minutesLeft: sessionInfo.duration - minutesIn,
+      url: sessionInfo.url
+    }
   );
 
   const coachImageEl = overlayElement.querySelector('[data-coach-image]');
