@@ -8,7 +8,7 @@ let beforeUnloadHandler = null;
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'SHOW_OVERLAY') {
-    showAlarmOverlay(request.sessionInfo, request.distractionStartedAt, request.alarmSound !== false);
+    showAlarmOverlay(request.sessionInfo, request.distractionStartedAt, request.alarmSound !== false, request.url);
     sendResponse({ success: true });
   } else if (request.type === 'HIDE_OVERLAY') {
     // Service worker already closed out the distraction (user switched tabs,
@@ -18,7 +18,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
-function showAlarmOverlay(sessionInfo, distractionStartedAt, playSound = true) {
+function showAlarmOverlay(sessionInfo, distractionStartedAt, playSound = true, url) {
   if (overlayElement) {
     return; // Already showing
   }
@@ -75,7 +75,7 @@ function showAlarmOverlay(sessionInfo, distractionStartedAt, playSound = true) {
       distractions: distractionCount,
       minutesIn: minutesIn,
       minutesLeft: sessionInfo.duration - minutesIn,
-      url: sessionInfo.url
+      url
     }
   );
 

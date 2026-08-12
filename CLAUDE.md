@@ -99,7 +99,7 @@ The alarm is a WebAudio beep generated in `content/overlay.js` — there is no a
 - `grace-watchdog` (every 30s while a session is active) rebuilds in-memory timers the sleeping worker lost, drops timers from old sessions, and force-ends a session whose alarm fired late
 
 **Overlay Behavior**
-1. Content script receives `{ type: 'SHOW_OVERLAY', sessionInfo, distractionStartedAt, alarmSound }`
+1. Content script receives `{ type: 'SHOW_OVERLAY', sessionInfo, distractionStartedAt, alarmSound, url }` (`url` is the blacklisted tab's URL at trigger time — `sessionInfo` is the persisted session object and never carries it)
 2. Injects a full-page overlay: blurred background, live distraction counter, motivational message, "Back to focus tab" (only when `focusTabId` is set) and Dismiss
 3. Dismiss → `OVERLAY_DISMISSED` → service worker resumes the clock
 4. Switching tabs / ending the session → service worker sends `HIDE_OVERLAY` and closes out the distraction itself

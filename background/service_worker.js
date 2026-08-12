@@ -338,7 +338,8 @@ async function triggerOverlay(tabId) {
       type: 'SHOW_OVERLAY',
       sessionInfo: session,
       distractionStartedAt,
-      alarmSound: settings.alarmSound
+      alarmSound: settings.alarmSound,
+      url: tab.url
     });
   } catch {
     // Content script unreachable (restricted page, document not ready). Roll
