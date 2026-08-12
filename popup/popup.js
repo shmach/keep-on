@@ -75,11 +75,13 @@ async function updateSessionState() {
     if (!response) return;
     const session = response.session;
 
-    if (!session || !session.active) {
-      showInactiveState();
-    } else {
+    if (session && session.active) {
       showActiveState(session);
       startLiveUpdates();
+    } else if (response.lastSession) {
+      showSessionEnded(response.lastSession);
+    } else {
+      showInactiveState();
     }
   });
 }
@@ -164,6 +166,10 @@ function showSessionEnded(session) {
   document.getElementById('stat-duration').textContent = formatMs(session.durationMs);
   document.getElementById('stat-distractions').textContent = session.distractions;
   document.getElementById('stat-distracted-time').textContent = formatMs(session.distractedMs);
+
+
+  const distractionRatio = session.distractedMs / session.durationMs;
+  coachController.updateCoachMoment('complete', { distractionRatio });
 }
 
 // Event listeners

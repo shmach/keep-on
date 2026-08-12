@@ -2,6 +2,7 @@
 // Manages session state, monitors tabs, and triggers alarms
 
 importScripts('/lib/shared.js');
+importScripts('/lib/coach.js');
 
 const SESSION_END_ALARM = 'session-end';
 const WATCHDOG_ALARM = 'grace-watchdog';
@@ -125,8 +126,11 @@ async function endSession(isTimerExpired = false) {
   const stats = {
     durationMs: session.durationMs,
     distractions: session.distractions,
-    distractedMs: session.distractedMs
+    distractedMs: session.distractedMs,
+    endedAt: Date.now()
   };
+
+  await chrome.storage.local.set({ lastSession: stats });
 
   const overlayTabId = session.overlayTabId;
 
@@ -159,7 +163,7 @@ async function endSession(isTimerExpired = false) {
   chrome.runtime.sendMessage({
     type: 'SESSION_ENDED',
     stats
-  }).catch(() => {}); // Popup might not be open
+  }).catch(() => { }); // Popup might not be open
 }
 
 // Stop counting a distraction: bank the time and give it back to the session
@@ -355,7 +359,7 @@ async function triggerOverlay(tabId) {
 }
 
 function hideOverlay(tabId) {
-  chrome.tabs.sendMessage(tabId, { type: 'HIDE_OVERLAY' }).catch(() => {});
+  chrome.tabs.sendMessage(tabId, { type: 'HIDE_OVERLAY' }).catch(() => { });
 }
 
 // ---------------------------------------------------------------------------
@@ -514,10 +518,10 @@ async function bootstrap() {
 }
 
 chrome.runtime.onStartup.addListener(() => {
-  bootstrap().catch(() => {});
+  bootstrap().catch(() => { });
 });
 
-bootstrap().catch(() => {});
+bootstrap().catch(() => { });
 
 // ---------------------------------------------------------------------------
 // Messaging
@@ -542,7 +546,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         await endSession(true);
         session = await getSession();
       }
-      sendResponse({ session });
+      const { lastSession } = await chrome.storage.local.get('lastSession');
+      sendResponse({ session, lastSession: lastSession || null });
     })();
     return true; // async response
   }

@@ -70,8 +70,21 @@
 
     <!-- Session ended state -->
     <div id="session-ended" class="session-state" style="display: none;">
-      <h1>✅ Session Complete!</h1>
+      <div class="title-container">
+        <img src="/assets/keep-on.png" alt="Keep on logo" width="50px" height="50px">
+        <h1>
+          Keep on
+        </h1>
+      </div>
 
+      <div class="coach-container">
+        <img src="#" alt="Coach Max" class="coach-image" data-coach-image>
+        <div class="coach-phrase-container">
+          <span data-coach-phrase class="coach-phrase"></span>
+        </div>
+      </div>
+
+      <h1 style="padding-bottom: 6px; text-align: center;">✅ Session Complete!</h1>
       <div class="session-stats">
         <div class="stat">
           <span class="stat-label">Duration:</span>
@@ -88,6 +101,8 @@
       </div>
 
       <button id="start-new-btn" class="btn btn-primary">Start New Session</button>
+      <button id="options-btn" class="btn btn-secondary">Settings</button>
+      <a href="https://ko-fi.com/shmach" target="_blank" class="btn btn-kofi">☕ Support on Ko-fi</a>
     </div>
   </div>
 
