@@ -1,127 +1,223 @@
 // Keep on Service Worker
 // Manages session state, monitors tabs, and triggers alarms
 
-const DEFAULTS = {
-  settings: {
-    gracePeriodMs: 15000,
-    alarmSound: true,
-    blacklist: [
-      'twitter.com', 'x.com', 'reddit.com', 'instagram.com',
-      'tiktok.com', 'facebook.com', 'youtube.com'
-    ]
-  }
-};
+importScripts('/lib/shared.js');
+importScripts('/lib/coach.js');
+
+const SESSION_END_ALARM = 'session-end';
+const WATCHDOG_ALARM = 'grace-watchdog';
+
+// Chrome clamps alarms to a ~30s floor, which is too coarse for a 5-60s grace
+// period. So grace periods run on setTimeout (precise, but lost when the worker
+// sleeps) and this periodic alarm rebuilds them from storage on wake.
+const WATCHDOG_PERIOD_MIN = 0.5;
+
+const MAX_SESSION_MS = 24 * 60 * 60 * 1000;
+
+// In-memory mirror of the grace periods persisted under `graceTimers`
+const graceTimeouts = new Map();
 
 // Initialize defaults on install
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.get('settings', (result) => {
     if (!result.settings) {
-      chrome.storage.local.set({ settings: DEFAULTS.settings });
+      chrome.storage.local.set({ settings: DEFAULT_SETTINGS });
     }
   });
 });
 
+// ---------------------------------------------------------------------------
+// Storage helpers
+// ---------------------------------------------------------------------------
+
+async function getSession() {
+  const { session } = await chrome.storage.local.get('session');
+  return session || null;
+}
+
+async function setSession(session) {
+  await chrome.storage.local.set({ session });
+}
+
+async function getSettings() {
+  const { settings } = await chrome.storage.local.get('settings');
+  const merged = { ...DEFAULT_SETTINGS, ...(settings || {}) };
+
+  // Defensive backstop: options.js validates before saving, but a corrupt or
+  // pre-validation value in storage must never reach setTimeout() as NaN.
+  const grace = Number(merged.gracePeriodMs);
+  merged.gracePeriodMs = Number.isFinite(grace) ? Math.min(60000, Math.max(5000, grace)) : DEFAULT_SETTINGS.gracePeriodMs;
+
+  return merged;
+}
+
+// { [tabId]: { startedAt, sessionId } }
+async function getGraceTimers() {
+  const { graceTimers } = await chrome.storage.local.get('graceTimers');
+  return graceTimers || {};
+}
+
+async function safeGetTab(tabId) {
+  try {
+    return await chrome.tabs.get(tabId);
+  } catch {
+    return null; // Tab was closed or is inaccessible
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Session lifecycle
+// ---------------------------------------------------------------------------
+
+// The session clock is driven by `endsAt` (wall-clock target). Pausing clears
+// the end alarm; resuming pushes `endsAt` forward by the paused duration and
+// reschedules, so the visible countdown and the real alarm never diverge.
+function scheduleSessionEnd(session) {
+  chrome.alarms.create(SESSION_END_ALARM, { when: session.endsAt });
+}
+
 // Start a focus session
 async function startSession(config) {
+  const durationMs = Number(config && config.durationMs);
+  if (!Number.isFinite(durationMs) || durationMs <= 0 || durationMs > MAX_SESSION_MS) {
+    return { success: false, error: 'Invalid session duration' };
+  }
+
+  let focusTabId = Number.isInteger(config.focusTabId) ? config.focusTabId : null;
+  if (focusTabId !== null && !(await safeGetTab(focusTabId))) {
+    focusTabId = null; // Tab was closed between selection and Start
+  }
+
   const now = Date.now();
   const session = {
+    id: now,
     active: true,
     startedAt: now,
-    durationMs: config.durationMs,
-    focusTabId: config.focusTabId || null,
+    durationMs,
+    endsAt: now + durationMs,
+    focusTabId,
     distractions: 0,
     distractedMs: 0,
     pausedMs: 0,
-    isPaused: false
+    isPaused: false,
+    pausedStartTime: null,
+    overlayTabId: null
   };
 
-  await chrome.storage.local.set({ session });
+  await clearAllGracePeriods();
+  await setSession(session);
 
-  // Set up session timer
-  const durationMin = config.durationMs / 60000;
-  chrome.alarms.create('session-end', { delayInMinutes: durationMin });
+  scheduleSessionEnd(session);
+  chrome.alarms.create(WATCHDOG_ALARM, { periodInMinutes: WATCHDOG_PERIOD_MIN });
 
-  // Update icon
   updateIcon(true);
 
-  // If the currently active tab is already blacklisted, start grace period immediately
+  // If the active tab is already blacklisted, start the grace period now
   // (onActivated won't fire because no tab switch occurred)
-  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (activeTab && activeTab.id !== session.focusTabId && activeTab.url) {
-    const blacklisted = await isBlacklisted(activeTab.url);
-    if (blacklisted) {
-      const storedSettings = await chrome.storage.local.get('settings');
-      const graceMs = storedSettings.settings.gracePeriodMs;
-      gracePeriodStartTimes.set(activeTab.id, Date.now());
-      const timeoutId = setTimeout(() => {
-        triggerOverlay(activeTab.id);
-      }, graceMs);
-      gracePeriodTimeouts.set(activeTab.id, timeoutId);
-    }
+  const activeTab = await getActiveTab();
+  if (activeTab) {
+    await handleTabFocus(activeTab.id);
   }
+
+  return { success: true };
 }
 
 // End the session and record stats
 async function endSession(isTimerExpired = false) {
-  const result = await chrome.storage.local.get('session');
-  const session = result.session;
+  const session = await getSession();
+  if (!session || !session.active) return;
 
-  if (session && session.active) {
-    // If the distraction overlay is still showing when the session ends,
-    // accumulate that in-progress distraction time before computing stats
-    if (session.isPaused && session.pausedStartTime) {
-      session.distractedMs += Date.now() - session.pausedStartTime;
-    }
+  const now = Date.now();
 
-    // Capture stats before mutating session state
-    const stats = {
-      durationMs: session.durationMs,
-      distractions: session.distractions,
-      distractedMs: session.distractedMs
-    };
-
-    session.active = false;
-    await chrome.storage.local.set({ session });
-
-    // Clear all grace period timeouts
-    for (const timeoutId of gracePeriodTimeouts.values()) {
-      clearTimeout(timeoutId);
-    }
-    gracePeriodTimeouts.clear();
-
-    // Clear alarms
-    chrome.alarms.clearAll();
-
-    // Update icon
-    updateIcon(false);
-
-    // Only show completion notification if timer naturally expired (not manually stopped)
-    if (isTimerExpired) {
-      showSessionCompleteNotification(stats);
-
-      // Badge shows checkmark until next session
-      chrome.action.setBadgeText({ text: '✓' });
-      chrome.action.setBadgeBackgroundColor({ color: '#fd611b' });
-    }
-
-    // Notify popup
-    chrome.runtime.sendMessage({
-      type: 'SESSION_ENDED',
-      stats
-    }).catch(() => {}); // Popup might not be open
+  // If the distraction overlay is still showing when the session ends,
+  // accumulate that in-progress distraction time before computing stats
+  if (session.isPaused && session.pausedStartTime) {
+    const pauseDuration = now - session.pausedStartTime;
+    session.distractedMs += pauseDuration;
+    session.pausedMs += pauseDuration;
   }
+
+  // A session stopped early never earned its full configured duration — report
+  // the actual focused time (elapsed minus paused/distracted time), not the
+  // target the user never reached. A naturally-completed session did reach
+  // it (endsAt was pushed forward to compensate for every pause), so use the
+  // configured duration there for a clean, jitter-free number.
+  const focusedMs = Math.max(0, (now - session.startedAt) - session.pausedMs);
+
+  // Capture stats before mutating session state
+  const stats = {
+    durationMs: isTimerExpired ? session.durationMs : focusedMs,
+    distractions: session.distractions,
+    distractedMs: session.distractedMs,
+    endedAt: now
+  };
+
+  await chrome.storage.local.set({ lastSession: stats });
+
+  const overlayTabId = session.overlayTabId;
+
+  session.active = false;
+  session.isPaused = false;
+  session.pausedStartTime = null;
+  session.overlayTabId = null;
+  await setSession(session);
+
+  await clearAllGracePeriods();
+  await chrome.alarms.clear(SESSION_END_ALARM);
+  await chrome.alarms.clear(WATCHDOG_ALARM);
+
+  if (overlayTabId !== null) {
+    hideOverlay(overlayTabId);
+  }
+
+  updateIcon(false);
+
+  // Only show completion notification if timer naturally expired (not manually stopped)
+  if (isTimerExpired) {
+    showSessionCompleteNotification(stats);
+
+    // Badge shows checkmark until next session
+    chrome.action.setBadgeText({ text: '✓' });
+    chrome.action.setBadgeBackgroundColor({ color: '#fd611b' });
+  }
+
+  // Notify popup
+  chrome.runtime.sendMessage({
+    type: 'SESSION_ENDED',
+    stats
+  }).catch(() => { }); // Popup might not be open
 }
 
-// Update extension icon color and badge based on session state
+// Stop counting a distraction: bank the time and give it back to the session
+async function endDistraction(session) {
+  if (!session || !session.active || !session.isPaused) return session;
+
+  const pauseDuration = Date.now() - (session.pausedStartTime || Date.now());
+  session.pausedMs += pauseDuration;
+  session.distractedMs += pauseDuration;
+  session.endsAt += pauseDuration;
+  session.isPaused = false;
+  session.pausedStartTime = null;
+  session.overlayTabId = null;
+
+  await setSession(session);
+  scheduleSessionEnd(session);
+
+  return session;
+}
+
+// ---------------------------------------------------------------------------
+// Icon, notification
+// ---------------------------------------------------------------------------
+
+// Update extension icon (full-color when active, grayscale when stopped) and badge
 async function updateIcon(isActive) {
+  const iconData = await generateStateIcon(isActive);
+  chrome.action.setIcon({ imageData: iconData });
   if (isActive) {
-    const greenIconData = generateSimpleIcon('#4CAF50');
-    chrome.action.setIcon({ imageData: greenIconData });
     chrome.action.setBadgeText({ text: 'ON' });
     chrome.action.setBadgeBackgroundColor({ color: '#03a9aa' });
   } else {
-    const grayIconData = generateSimpleIcon('#808080');
-    chrome.action.setIcon({ imageData: grayIconData });
     chrome.action.setBadgeText({ text: '' });
   }
 }
@@ -159,193 +255,413 @@ async function showSessionCompleteNotification(stats) {
   });
 }
 
-// Generate a simple icon (128x128 colored square)
-function generateSimpleIcon(color) {
+// Render the real extension logo, grayscale when the session is inactive
+async function generateStateIcon(isActive) {
+  const url = chrome.runtime.getURL('assets/keep-on-128x128.png');
+  const response = await fetch(url);
+  const bitmap = await createImageBitmap(await response.blob());
+
   const canvas = new OffscreenCanvas(128, 128);
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle = color;
-  ctx.fillRect(0, 0, 128, 128);
+  if (!isActive) {
+    ctx.filter = 'grayscale(100%)';
+  }
+  ctx.drawImage(bitmap, 0, 0, 128, 128);
   return ctx.getImageData(0, 0, 128, 128);
 }
 
-// Check if a tab is on a blacklist domain
-async function isBlacklisted(tabUrl) {
-  try {
-    const settings = await chrome.storage.local.get('settings');
-    const hostname = new URL(tabUrl).hostname.replace(/^www\./, '');
-    return settings.settings.blacklist.some(domain =>
-      hostname.includes(domain.replace(/^www\./, ''))
-    );
-  } catch {
-    return false;
+// ---------------------------------------------------------------------------
+// Grace periods
+// ---------------------------------------------------------------------------
+
+function armGraceTimeout(tabId, delayMs) {
+  const timeoutId = setTimeout(() => {
+    graceTimeouts.delete(tabId);
+    triggerOverlay(tabId);
+  }, Math.max(0, delayMs));
+
+  graceTimeouts.set(tabId, timeoutId);
+}
+
+function clearGraceTimeout(tabId) {
+  const timeoutId = graceTimeouts.get(tabId);
+  if (timeoutId !== undefined) {
+    clearTimeout(timeoutId);
+    graceTimeouts.delete(tabId);
   }
 }
 
-// Track grace period timeouts by tab ID
-const gracePeriodTimeouts = new Map();
+async function clearGracePeriod(tabId) {
+  clearGraceTimeout(tabId);
 
-// Track when each grace period started
-const gracePeriodStartTimes = new Map();
+  const timers = await getGraceTimers();
+  if (timers[tabId] !== undefined) {
+    delete timers[tabId];
+    await chrome.storage.local.set({ graceTimers: timers });
+  }
+}
+
+async function clearAllGracePeriods() {
+  for (const timeoutId of graceTimeouts.values()) {
+    clearTimeout(timeoutId);
+  }
+  graceTimeouts.clear();
+  await chrome.storage.local.set({ graceTimers: {} });
+}
+
+// Start a grace period, or re-arm an existing one after the worker slept.
+// Never restarts a countdown that is already running for this session.
+async function ensureGracePeriod(tabId, session, graceMs) {
+  const timers = await getGraceTimers();
+  const existing = timers[tabId];
+
+  if (existing && existing.sessionId === session.id) {
+    const remaining = existing.startedAt + graceMs - Date.now();
+    if (remaining <= 0) {
+      await triggerOverlay(tabId);
+    } else if (!graceTimeouts.has(tabId)) {
+      armGraceTimeout(tabId, remaining);
+    }
+    return;
+  }
+
+  clearGraceTimeout(tabId);
+  timers[tabId] = { startedAt: Date.now(), sessionId: session.id };
+  await chrome.storage.local.set({ graceTimers: timers });
+  armGraceTimeout(tabId, graceMs);
+}
 
 // Trigger overlay for a blacklisted tab
 async function triggerOverlay(tabId) {
-  const result = await chrome.storage.local.get('session');
-  const session = result.session;
+  const timers = await getGraceTimers();
+  const graceEntry = timers[tabId];
+  await clearGracePeriod(tabId);
 
-  if (session && session.active) {
-    // Increment distraction count
-    session.distractions++;
+  let session = await getSession();
+  if (!session || !session.active || session.isPaused) return;
+  if (graceEntry && graceEntry.sessionId !== session.id) return; // Stale timer
+  if (tabId === session.focusTabId) return;
 
-    // Pause the session timer
-    session.isPaused = true;
-    session.pausedStartTime = Date.now();
+  const sessionId = session.id;
+  const settings = await getSettings();
 
-    await chrome.storage.local.set({ session });
+  // Only alarm if the user is still sitting on this tab
+  const tab = await safeGetTab(tabId);
+  if (!tab || !tab.active || !isBlacklistedUrl(tab.url, settings.blacklist)) return;
 
-    const settingsResult = await chrome.storage.local.get('settings');
-    const alarmSound = settingsResult.settings?.alarmSound ?? true;
+  // Re-read immediately before mutating: the awaits above give the session-end
+  // alarm a window to fire and end this same session out from under us
+  session = await getSession();
+  if (!session || session.id !== sessionId || !session.active || session.isPaused) return;
 
-    // Get the grace period start time
-    const gracePeriodStartTime = gracePeriodStartTimes.get(tabId) || Date.now();
+  session.distractions++;
+  session.isPaused = true;
+  session.pausedStartTime = Date.now();
+  session.overlayTabId = tabId;
+  await setSession(session);
 
-    // Send overlay message to tab
-    chrome.tabs.sendMessage(tabId, {
+  // The session clock is paused, so the end alarm must not keep counting down
+  await chrome.alarms.clear(SESSION_END_ALARM);
+
+  const distractionStartedAt = graceEntry ? graceEntry.startedAt : Date.now();
+
+  try {
+    await chrome.tabs.sendMessage(tabId, {
       type: 'SHOW_OVERLAY',
       sessionInfo: session,
-      distractionStartedAt: gracePeriodStartTime,
-      alarmSound
-    }).catch(() => {});
-  }
+      distractionStartedAt,
+      url: tab.url
+    });
 
-  // Clear the timeout from tracking
-  gracePeriodTimeouts.delete(tabId);
-  gracePeriodStartTimes.delete(tabId);
+    if (settings.alarmSound) {
+      playAlarmSound().catch(() => { });
+    }
+  } catch {
+    // Content script unreachable (restricted page, document not ready). Roll
+    // back so the session isn't left paused waiting on an overlay that never
+    // appeared.
+    session.distractions--;
+    session.isPaused = false;
+    session.pausedStartTime = null;
+    session.overlayTabId = null;
+    await setSession(session);
+    scheduleSessionEnd(session);
+  }
 }
 
-// Clear grace period timeout for a tab
-function clearGracePeriod(tabId) {
-  if (gracePeriodTimeouts.has(tabId)) {
-    clearTimeout(gracePeriodTimeouts.get(tabId));
-    gracePeriodTimeouts.delete(tabId);
-    gracePeriodStartTimes.delete(tabId);
+function hideOverlay(tabId) {
+  chrome.tabs.sendMessage(tabId, { type: 'HIDE_OVERLAY' }).catch(() => { });
+}
+
+// ---------------------------------------------------------------------------
+// Alarm sound (offscreen document)
+// ---------------------------------------------------------------------------
+
+// Audio must play from an offscreen document, not the triggering tab: Chrome's
+// autoplay policy blocks Web Audio in a page that hasn't had a user gesture,
+// which a background-triggered alarm never has. Offscreen documents belong to
+// the extension itself and are exempt from that restriction.
+const OFFSCREEN_DOCUMENT_PATH = 'background/offscreen.html';
+
+async function ensureOffscreenDocument() {
+  try {
+    await chrome.offscreen.createDocument({
+      url: OFFSCREEN_DOCUMENT_PATH,
+      reasons: ['AUDIO_PLAYBACK'],
+      justification: 'Play the distraction alarm beep'
+    });
+  } catch (e) {
+    // createDocument rejects if one already exists — that's fine, reuse it
+    if (!String(e).includes('single offscreen')) throw e;
   }
+}
+
+async function playAlarmSound() {
+  await ensureOffscreenDocument();
+  await chrome.runtime.sendMessage({ type: 'PLAY_ALARM_SOUND' });
+}
+
+// ---------------------------------------------------------------------------
+// Tab monitoring
+// ---------------------------------------------------------------------------
+
+async function getActiveTab() {
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  return tab && tab.id !== undefined ? tab : null;
+}
+
+// Single entry point for "the user is now looking at this tab"
+async function handleTabFocus(tabId) {
+  let session = await getSession();
+  if (!session || !session.active) return;
+
+  // Leaving the tab that shows the overlay ends the distraction, even if the
+  // user never clicked Dismiss
+  if (session.overlayTabId !== null && session.overlayTabId !== tabId) {
+    const previousTabId = session.overlayTabId;
+    session = await endDistraction(session);
+    hideOverlay(previousTabId);
+  }
+
+  // A grace period only applies while its tab is the one being looked at
+  const timers = await getGraceTimers();
+  const tracked = new Set([...graceTimeouts.keys(), ...Object.keys(timers).map(Number)]);
+  for (const trackedTabId of tracked) {
+    if (trackedTabId !== tabId) {
+      await clearGracePeriod(trackedTabId);
+    }
+  }
+
+  if (tabId === session.focusTabId) {
+    await clearGracePeriod(tabId);
+    return;
+  }
+
+  if (session.isPaused) return; // Overlay already up somewhere
+
+  const tab = await safeGetTab(tabId);
+  if (!tab) return;
+
+  const settings = await getSettings();
+  if (!isBlacklistedUrl(tab.url, settings.blacklist)) {
+    await clearGracePeriod(tabId);
+    return;
+  }
+
+  await ensureGracePeriod(tabId, session, settings.gracePeriodMs);
 }
 
 // Handle tab activation
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
-  const session = await chrome.storage.local.get('session');
-
-  if (!session.session || !session.session.active) {
-    return;
-  }
-
-  // Skip if we're on the focus tab
-  if (activeInfo.tabId === session.session.focusTabId) {
-    clearGracePeriod(activeInfo.tabId);
-    return;
-  }
-
-  // Clear grace period for any other tab that was active
-  for (const tabId of gracePeriodTimeouts.keys()) {
-    if (tabId !== activeInfo.tabId) {
-      clearGracePeriod(tabId);
-    }
-  }
-
-  const tab = await chrome.tabs.get(activeInfo.tabId);
-  const blacklisted = await isBlacklisted(tab.url);
-
-  if (blacklisted) {
-    // Start grace period
-    const settings = await chrome.storage.local.get('settings');
-    const graceMs = settings.settings.gracePeriodMs;
-    const gracePeriodStart = Date.now();
-
-    gracePeriodStartTimes.set(activeInfo.tabId, gracePeriodStart);
-    const timeoutId = setTimeout(() => {
-      triggerOverlay(activeInfo.tabId);
-    }, graceMs);
-
-    gracePeriodTimeouts.set(activeInfo.tabId, timeoutId);
-  }
+  await handleTabFocus(activeInfo.tabId);
 });
 
 // Handle tab updates (URL change)
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-  if (changeInfo.url) {
-    // URL changed, clear any pending grace period for this tab
-    clearGracePeriod(tabId);
+  if (!changeInfo.url) return;
 
-    // Re-check if the new URL is blacklisted
-    const session = await chrome.storage.local.get('session');
-    if (!session.session || !session.session.active) return;
+  let session = await getSession();
+  if (!session || !session.active) return;
 
-    const blacklisted = await isBlacklisted(tab.url);
-    if (blacklisted) {
-      const settings = await chrome.storage.local.get('settings');
-      const graceMs = settings.settings.gracePeriodMs;
-      const gracePeriodStart = Date.now();
+  // Navigating destroys the overlay along with the old document, so the
+  // distraction has to be closed out here too
+  if (session.overlayTabId === tabId) {
+    session = await endDistraction(session);
+  }
 
-      gracePeriodStartTimes.set(tabId, gracePeriodStart);
-      const timeoutId = setTimeout(() => {
-        triggerOverlay(tabId);
-      }, graceMs);
+  if (!tab.active || tabId === session.focusTabId || session.isPaused) return;
 
-      gracePeriodTimeouts.set(tabId, timeoutId);
-    }
+  const settings = await getSettings();
+  if (isBlacklistedUrl(changeInfo.url, settings.blacklist)) {
+    // Still blacklisted — SPA sites (Reddit, YouTube, etc.) fire this event on
+    // every in-page navigation, so ensureGracePeriod must resume any grace
+    // period already in flight rather than restart it from zero.
+    await ensureGracePeriod(tabId, session, settings.gracePeriodMs);
+  } else {
+    // Left the blacklisted host, so any pending grace period no longer applies
+    await clearGracePeriod(tabId);
   }
 });
+
+// Closing a tab must not leave the session paused forever
+chrome.tabs.onRemoved.addListener(async (tabId) => {
+  await clearGracePeriod(tabId);
+
+  let session = await getSession();
+  if (!session || !session.active) return;
+
+  if (session.overlayTabId === tabId) {
+    session = await endDistraction(session);
+  }
+
+  if (session.focusTabId === tabId) {
+    session.focusTabId = null;
+    await setSession(session);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Watchdog — recovers state the sleeping service worker lost
+// ---------------------------------------------------------------------------
+
+async function runWatchdog() {
+  const session = await getSession();
+  if (!session || !session.active) {
+    await chrome.alarms.clear(WATCHDOG_ALARM);
+    return;
+  }
+
+  // chrome.alarms has a ~30s floor and can fire late, so verify the clock here
+  if (!session.isPaused && Date.now() >= session.endsAt) {
+    await endSession(true);
+    return;
+  }
+
+  // Drop grace periods left over from a previous session
+  const timers = await getGraceTimers();
+  for (const key of Object.keys(timers)) {
+    if (timers[key].sessionId !== session.id) {
+      await clearGracePeriod(Number(key));
+    }
+  }
+
+  const activeTab = await getActiveTab();
+  if (activeTab) {
+    await handleTabFocus(activeTab.id);
+  }
+}
 
 // Handle alarms
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name === 'session-end') {
-    await endSession(true); // Pass true to indicate timer naturally expired
+  if (alarm.name === SESSION_END_ALARM) {
+    const session = await getSession();
+    // Ignore a stale end alarm that fires while the session is paused
+    if (session && session.active && session.isPaused) return;
+    await endSession(true);
+  } else if (alarm.name === WATCHDOG_ALARM) {
+    await runWatchdog();
   }
 });
 
-// Listen for messages from popup/content
+// Runs on install and on every wake, rebuilding what lived only in memory
+async function bootstrap() {
+  const session = await getSession();
+  if (!session || !session.active) return;
+
+  // A session started before this version has no clock target; derive one so
+  // the upgrade doesn't strand it with a NaN countdown
+  if (typeof session.endsAt !== 'number') {
+    session.id = session.id || session.startedAt;
+    session.endsAt = session.startedAt + session.durationMs + (session.pausedMs || 0);
+    session.overlayTabId = session.overlayTabId ?? null;
+    await setSession(session);
+  }
+
+  chrome.alarms.create(WATCHDOG_ALARM, { periodInMinutes: WATCHDOG_PERIOD_MIN });
+  if (!session.isPaused) {
+    scheduleSessionEnd(session);
+  }
+  updateIcon(true);
+
+  await runWatchdog();
+}
+
+chrome.runtime.onStartup.addListener(() => {
+  bootstrap().catch(() => { });
+});
+
+bootstrap().catch(() => { });
+
+// ---------------------------------------------------------------------------
+// Messaging
+// ---------------------------------------------------------------------------
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'START_SESSION') {
-    startSession(request.config);
-    sendResponse({ success: true });
-  } else if (request.type === 'END_SESSION') {
-    endSession().then(() => {
-      sendResponse({ success: true });
-    });
+    startSession(request.config).then(sendResponse);
     return true; // async response
-  } else if (request.type === 'GET_SESSION') {
-    chrome.storage.local.get('session', (result) => {
-      sendResponse({ session: result.session });
-    });
+  }
+
+  if (request.type === 'END_SESSION') {
+    endSession().then(() => sendResponse({ success: true }));
     return true; // async response
-  } else if (request.type === 'OVERLAY_DISMISSED') {
-    // Resume session timer and record distracted time
-    chrome.storage.local.get('session', (result) => {
-      const session = result.session;
-      if (session && session.active && session.isPaused) {
-        const pauseDuration = Date.now() - session.pausedStartTime;
-        session.pausedMs += pauseDuration;
-        session.distractedMs += pauseDuration;
-        session.isPaused = false;
-        delete session.pausedStartTime;
-        chrome.storage.local.set({ session });
+  }
+
+  if (request.type === 'GET_SESSION') {
+    (async () => {
+      let session = await getSession();
+      // Close out a session whose end alarm fired late or not at all
+      if (session && session.active && !session.isPaused && Date.now() >= session.endsAt) {
+        await endSession(true);
+        session = await getSession();
+      }
+      const { lastSession } = await chrome.storage.local.get('lastSession');
+      sendResponse({ session, lastSession: lastSession || null });
+    })();
+    return true; // async response
+  }
+
+  if (request.type === 'OVERLAY_DISMISSED') {
+    (async () => {
+      const session = await getSession();
+      // Only end the distraction this message actually came from — a late
+      // message from a stale/previous overlay must not resume the wrong session
+      if (session && sender.tab && session.overlayTabId === sender.tab.id) {
+        await endDistraction(session);
       }
       sendResponse({ success: true });
-    });
+    })();
+    return true; // async response
+  }
+
+  if (request.type === 'FOCUS_TAB') {
+    (async () => {
+      const session = await getSession();
+      const focusTabId = session && session.focusTabId;
+      const tab = focusTabId ? await safeGetTab(focusTabId) : null;
+      if (tab) {
+        try {
+          await chrome.tabs.update(focusTabId, { active: true });
+          await chrome.windows.update(tab.windowId, { focused: true });
+        } catch {
+          // Tab or window disappeared between the lookup and the switch
+        }
+      }
+      sendResponse({ success: true });
+    })();
     return true; // async response
   }
 });
 
 // Command handler for keyboard shortcut
-chrome.commands.onCommand.addListener((command) => {
-  if (command === 'toggle-session') {
-    chrome.storage.local.get('session', async (result) => {
-      if (result.session && result.session.active) {
-        await endSession();
-      } else {
-        // Default: 45 min session
-        startSession({ durationMs: 45 * 60000 });
-      }
-    });
+chrome.commands.onCommand.addListener(async (command) => {
+  if (command !== 'toggle-session') return;
+
+  const session = await getSession();
+  if (session && session.active) {
+    await endSession();
+  } else {
+    // Default: 45 min session
+    await startSession({ durationMs: 45 * 60000 });
   }
 });

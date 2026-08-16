@@ -335,16 +335,16 @@
           <span class="perm-desc">Manages the session countdown timer reliably, even when the service worker sleeps.</span>
         </div>
         <div class="permission-row">
-          <span class="perm-name">activeTab</span>
-          <span class="perm-desc">Reads the URL of the currently active tab to check whether it matches your blacklist.</span>
-        </div>
-        <div class="permission-row">
           <span class="perm-name">notifications</span>
           <span class="perm-desc">Shows a native browser notification when your focus session completes.</span>
         </div>
         <div class="permission-row">
           <span class="perm-name">&lt;all_urls&gt;</span>
           <span class="perm-desc">Required to inject the focus overlay into any page you visit, since blacklisted sites can be any domain. No page content is read or recorded.</span>
+        </div>
+        <div class="permission-row">
+          <span class="perm-name">offscreen</span>
+          <span class="perm-desc">Plays the alarm beep from a hidden extension page instead of the visited tab, so it isn't blocked by the browser's autoplay restrictions. No audio is recorded.</span>
         </div>
       </div>
     </div>

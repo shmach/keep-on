@@ -1,72 +1,138 @@
 // Content Script: Overlay Injection
 // Runs on all tabs, listens for alarm messages from service worker
 
-let overlayElement = null;
-let overlayStartTime = null;
+let overlayElement = null; // shadow host, appended to document.documentElement
+let shadowRoot = null;
+let counterInterval = null;
 let distraction = null;
 let beforeUnloadHandler = null;
+let cachedCss = null;
 
+// Content scripts are treated as the page's origin for resource loading, so
+// overlay.css must be listed in manifest.json's web_accessible_resources for
+// this fetch to succeed — same reason the coach images need it.
+async function getOverlayCss() {
+  if (cachedCss) return cachedCss;
+  const response = await fetch(chrome.runtime.getURL('content/overlay.css'));
+  cachedCss = await response.text();
+  return cachedCss;
+}
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'SHOW_OVERLAY') {
-    showAlarmOverlay(request.sessionInfo, request.distractionStartedAt, request.alarmSound !== false);
+    showAlarmOverlay(request.sessionInfo, request.distractionStartedAt, request.url).catch(() => { });
     sendResponse({ success: true });
-  } else if (request.type === 'SESSION_ENDED') {
-    showSessionCompleteOverlay(request.stats);
+  } else if (request.type === 'HIDE_OVERLAY') {
+    // Service worker already closed out the distraction (user switched tabs,
+    // session ended), so tear down without reporting it again
+    removeOverlay();
     sendResponse({ success: true });
   }
 });
 
-function showAlarmOverlay(sessionInfo, distractionStartedAt, playSound = true) {
+async function showAlarmOverlay(sessionInfo, distractionStartedAt, url) {
   if (overlayElement) {
     return; // Already showing
   }
 
-  overlayStartTime = Date.now();
   distraction = {
     sessionStartedAt: sessionInfo.startedAt,
     focusTabId: sessionInfo.focusTabId,
-    distractionStartedAt: distractionStartedAt || overlayStartTime
+    distractionStartedAt: distractionStartedAt || Date.now()
   };
 
-  // Create overlay container
+  // Reserve the slot immediately so a second SHOW_OVERLAY firing while the
+  // CSS fetch below is in flight doesn't inject a duplicate overlay
   overlayElement = document.createElement('div');
-  overlayElement.id = 'focus-alarm-overlay';
-  overlayElement.innerHTML = `
-    <div class="focus-alarm-backdrop">
-      <div class="focus-alarm-card">
-        <h1 class="focus-alarm-title">⏰ Time Check</h1>
-        <p class="focus-alarm-counter">
-          You've been here for <span id="distraction-counter">0</span>s
-        </p>
-        <p class="focus-alarm-message" id="focus-alarm-message">
-          You're ${Math.round((Date.now() - sessionInfo.startedAt) / 1000 / 60)} min into your session — stay sharp!
-        </p>
-        <p class="focus-alarm-recommendation">
-          Consider closing this tab to return to your focus session.
-        </p>
-        <button id="focus-alarm-dismiss-btn" class="focus-alarm-btn">Dismiss</button>
+  overlayElement.id = 'keep-on-overlay-host';
+  document.documentElement.appendChild(overlayElement);
+  shadowRoot = overlayElement.attachShadow({ mode: 'open' });
+
+  const minutesIn = Math.round((Date.now() - sessionInfo.startedAt) / 1000 / 60);
+  const hasFocusTab = Number.isInteger(sessionInfo.focusTabId);
+
+  const css = await getOverlayCss();
+
+  // Host page CSS is fully blocked by the shadow boundary; only inherited
+  // properties (line-height, font-size, color...) can still leak in from the
+  // host element's computed style, hence the :host reset in overlay.css
+  if (!overlayElement) {
+    return; // removeOverlay() ran while the fetch above was in flight
+  }
+
+  shadowRoot.innerHTML = `
+    <style>${css}</style>
+    <div id="focus-alarm-overlay">
+      <div class="focus-alarm-backdrop">
+        <div class="focus-alarm-card">
+          <h1 class="focus-alarm-title">⏰ Time Check</h1>
+          <p class="focus-alarm-counter">
+            You've been here for <span id="distraction-counter">0</span>s
+          </p>
+          <p class="focus-alarm-message" id="focus-alarm-message">
+            You're ${minutesIn} min into your session — stay sharp!
+          </p>
+        <div class="coach-container">
+          <img data-coach-image alt="Coach Max" class="coach-image">
+          <div class="coach-phrase-container">
+            <span data-coach-phrase class="coach-phrase"></span>
+          </div>
+        </div>
+          ${hasFocusTab ? '<button id="focus-alarm-back-btn" class="focus-alarm-btn">Back to focus tab</button>' : ''}
+          <button id="focus-alarm-dismiss-btn" class="focus-alarm-btn${hasFocusTab ? ' secondary' : ''}">Dismiss</button>
+        </div>
       </div>
     </div>
   `;
 
-  document.documentElement.appendChild(overlayElement);
+  let distractionCount;
 
-  if (playSound) {
-    playAlarmSound();
+  if (sessionInfo.distractions > 3) {
+    distractionCount = 'infinity';
+  } else if (sessionInfo.distractions > 0) {
+    distractionCount = sessionInfo.distractions;
+  } else {
+    distractionCount = 1;
   }
 
+  const { image, phrase } = getCoachMoment(
+    "distraction",
+    {
+      distractions: distractionCount,
+      minutesIn: minutesIn,
+      minutesLeft: sessionInfo.durationMs / 60000 - minutesIn,
+      url
+    }
+  );
+
+  const coachImageEl = shadowRoot.querySelector('[data-coach-image]');
+  const coachPhraseEl = shadowRoot.querySelector('[data-coach-phrase]');
+
+  if (image) coachImageEl.src = image;
+  if (phrase) coachPhraseEl.textContent = phrase;
+
+  coachImageEl.addEventListener('error', () => coachImageEl.style.display = 'none');
+
   // Event listeners
-  document.getElementById('focus-alarm-dismiss-btn').addEventListener('click', dismissOverlay);
+  shadowRoot.getElementById('focus-alarm-dismiss-btn').addEventListener('click', dismissOverlay);
+
+  const backBtn = shadowRoot.getElementById('focus-alarm-back-btn');
+  if (backBtn) {
+    backBtn.addEventListener('click', () => {
+      chrome.runtime.sendMessage({ type: 'FOCUS_TAB' }).catch(() => { });
+      dismissOverlay();
+    });
+  }
 
   // Update counter every second
-  const counterInterval = setInterval(() => {
+  counterInterval = setInterval(() => {
     if (!overlayElement || !overlayElement.parentElement) {
       clearInterval(counterInterval);
+      counterInterval = null;
       return;
     }
     const elapsed = Math.round((Date.now() - distraction.distractionStartedAt) / 1000);
-    const counterEl = document.getElementById('distraction-counter');
+    const counterEl = shadowRoot.getElementById('distraction-counter');
     if (counterEl) {
       counterEl.textContent = elapsed;
     }
@@ -76,93 +142,32 @@ function showAlarmOverlay(sessionInfo, distractionStartedAt, playSound = true) {
   window.addEventListener('beforeunload', beforeUnloadHandler);
 }
 
-function dismissOverlay() {
+// Tear down the overlay without notifying the service worker
+function removeOverlay() {
   if (overlayElement && overlayElement.parentElement) {
     overlayElement.parentElement.removeChild(overlayElement);
   }
   overlayElement = null;
-  overlayStartTime = null;
+  shadowRoot = null;
   distraction = null;
+
+  if (counterInterval) {
+    clearInterval(counterInterval);
+    counterInterval = null;
+  }
 
   if (beforeUnloadHandler) {
     window.removeEventListener('beforeunload', beforeUnloadHandler);
     beforeUnloadHandler = null;
   }
-
-  // Notify service worker that overlay was dismissed
-  chrome.runtime.sendMessage({
-    type: 'OVERLAY_DISMISSED'
-  }).catch(() => {});
 }
 
-function formatMs(ms) {
-  const m = Math.floor(ms / 60000);
-  const s = Math.floor((ms % 60000) / 1000);
-  return `${m}m ${s}s`;
-}
+function dismissOverlay() {
+  const wasShowing = overlayElement !== null;
+  removeOverlay();
 
-function getMotivationalMessage(distractions) {
-  if (distractions === 0) return 'Perfect focus! Outstanding work.';
-  if (distractions <= 2)  return 'Great job! You stayed on track.';
-  if (distractions <= 5)  return 'Good session — keep reducing distractions.';
-  return 'Tough session. You\'ll do better next time!';
-}
-
-function showSessionCompleteOverlay(stats) {
-  // Dismiss any in-progress distraction overlay first
-  if (overlayElement) {
-    dismissOverlay();
-  }
-
-  overlayElement = document.createElement('div');
-  overlayElement.id = 'focus-alarm-overlay';
-  overlayElement.innerHTML = `
-    <div class="focus-alarm-backdrop">
-      <div class="focus-alarm-card">
-        <h1 class="focus-alarm-title success">🎉 Session Complete!</h1>
-        <p class="focus-alarm-message">
-          <strong>Duration:</strong> ${formatMs(stats.durationMs)}<br>
-          <strong>Distractions:</strong> ${stats.distractions}<br>
-          <strong>Time distracted:</strong> ${formatMs(stats.distractedMs)}
-        </p>
-        <p class="focus-alarm-recommendation">
-          ${getMotivationalMessage(stats.distractions)}
-        </p>
-        <button id="focus-alarm-close-btn" class="focus-alarm-btn">Close</button>
-      </div>
-    </div>
-  `;
-
-  document.documentElement.appendChild(overlayElement);
-
-  // Close button handler
-  document.getElementById('focus-alarm-close-btn').addEventListener('click', () => {
-    if (overlayElement && overlayElement.parentElement) {
-      overlayElement.parentElement.removeChild(overlayElement);
-    }
-    overlayElement = null;
-  });
-}
-
-function playAlarmSound() {
-  // Create audio context for beep
-  try {
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const oscillator = audioContext.createOscillator();
-    const gainNode = audioContext.createGain();
-
-    oscillator.connect(gainNode);
-    gainNode.connect(audioContext.destination);
-
-    oscillator.frequency.value = 800; // Frequency in Hz
-    oscillator.type = 'sine';
-
-    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
-
-    oscillator.start(audioContext.currentTime);
-    oscillator.stop(audioContext.currentTime + 0.5);
-  } catch (e) {
-    // Audio unavailable; fail silently
+  if (wasShowing) {
+    // Notify service worker so it resumes the session clock
+    chrome.runtime.sendMessage({ type: 'OVERLAY_DISMISSED' }).catch(() => { });
   }
 }

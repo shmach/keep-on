@@ -18,7 +18,13 @@
           Keep on
         </h1>
       </div>
-      <p class="subtitle">Stay focused, avoid distractions</p>
+
+      <div class="coach-container">
+        <img data-coach-image src="#" alt="Coach Max" class="coach-image">
+        <div class="coach-phrase-container">
+          <span data-coach-phrase class="coach-phrase"></span>
+        </div>
+      </div>
 
       <div class="form-group">
         <label for="duration-input">Session Duration (minutes)</label>
@@ -28,18 +34,25 @@
       <div class="form-group">
         <label for="focus-tab-select">Focus Tab (optional)</label>
         <select id="focus-tab-select" class="input-field">
-          <option value="">-- None (pin current) --</option>
+          <option value="">-- No focus tab --</option>
         </select>
       </div>
 
       <button id="start-btn" class="btn btn-primary">Start Session</button>
-      <button id="options-btn" class="btn btn-secondary">Settings</button>
+      <button class="btn btn-secondary options-btn">Settings</button>
       <a href="https://ko-fi.com/shmach" target="_blank" class="btn btn-kofi">☕ Support on Ko-fi</a>
     </div>
 
     <!-- Session active state -->
     <div id="session-active" class="session-state" style="display: none;">
       <h1>⏱️ Session Active</h1>
+
+      <div class="coach-container">
+        <img src="#" alt="Coach Max" class="coach-image" data-coach-image>
+        <div class="coach-phrase-container">
+          <span data-coach-phrase class="coach-phrase"></span>
+        </div>
+      </div>
 
       <div class="session-info">
         <div class="info-row">
@@ -57,8 +70,21 @@
 
     <!-- Session ended state -->
     <div id="session-ended" class="session-state" style="display: none;">
-      <h1>✅ Session Complete!</h1>
+      <div class="title-container">
+        <img src="/assets/keep-on.png" alt="Keep on logo" width="50px" height="50px">
+        <h1>
+          Keep on
+        </h1>
+      </div>
 
+      <div class="coach-container">
+        <img src="#" alt="Coach Max" class="coach-image" data-coach-image>
+        <div class="coach-phrase-container">
+          <span data-coach-phrase class="coach-phrase"></span>
+        </div>
+      </div>
+
+      <h1 style="padding-bottom: 6px; text-align: center;">✅ Session Complete!</h1>
       <div class="session-stats">
         <div class="stat">
           <span class="stat-label">Duration:</span>
@@ -75,9 +101,12 @@
       </div>
 
       <button id="start-new-btn" class="btn btn-primary">Start New Session</button>
+      <button class="btn btn-secondary options-btn">Settings</button>
+      <a href="https://ko-fi.com/shmach" target="_blank" class="btn btn-kofi">☕ Support on Ko-fi</a>
     </div>
   </div>
 
+  <script src="/lib/coach.js"></script>
   <script src="popup.js"></script>
 </body>
 
