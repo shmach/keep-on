@@ -58,7 +58,10 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "assets/coaches/max/coach-max-base.png"
+        "assets/coaches/max/coach-max-base.png",
+        "assets/coaches/max/coach-max-angry.png",
+        "assets/coaches/max/coach-max-embarrassed.png",
+        "assets/coaches/max/coach-max-satisfied.png"
       ],
       "matches": [
         "<all_urls>"
