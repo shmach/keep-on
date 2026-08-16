@@ -23,7 +23,7 @@ A Chrome/Firefox browser extension that enforces focus sessions with smart distr
 ├── background/
 │   ├── service_worker.js         # Session state machine, tab monitoring, timer logic
 │   ├── offscreen.html            # Offscreen document (audio playback only)
-│   └── offscreen.js              # Alarm beep — generated here, not in the tab
+│   └── offscreen.js              # Alarm sound — played here, not in the tab
 ├── content/
 │   ├── overlay.js                # Injects alarm overlay into tabs
 │   └── overlay.css               # Overlay styling
@@ -39,10 +39,10 @@ A Chrome/Firefox browser extension that enforces focus sessions with smart distr
 │   └── shared.js                 # DEFAULT_SETTINGS + domain normalization/matching
 │                                 # (importScripts in the SW, <script> in options.html)
 ├── privacy-policy.html           # Chrome Web Store privacy policy page
-└── assets/                       # Icons (16/32/48/128), logo, banner, store screenshots
+└── assets/                       # Icons (16/32/48/128), logo, banner, store screenshots, sounds
 ```
 
-The alarm is a WebAudio beep generated in `background/offscreen.js` — there is no audio file to ship.
+The alarm sound is `assets/sounds/whistle-sound-effect.mp3`, played from `background/offscreen.js` via an `Audio` element (declared in `web_accessible_resources` and resolved with `chrome.runtime.getURL()`, same as the coach images).
 
 **Planned (phase 7, not implemented yet):** `lib/coach.js` and `assets/coaches/max/*.png`.
 
@@ -103,7 +103,7 @@ The alarm is a WebAudio beep generated in `background/offscreen.js` — there is
 **Overlay Behavior**
 1. Content script receives `{ type: 'SHOW_OVERLAY', sessionInfo, distractionStartedAt, url }` (`url` is the blacklisted tab's URL at trigger time — `sessionInfo` is the persisted session object and never carries it)
 2. Injects a full-page overlay inside a shadow root (`attachShadow`), so the host page's CSS can never bleed into it: blurred background, live distraction counter, motivational message, "Back to focus tab" (only when `focusTabId` is set) and Dismiss
-3. If `settings.alarmSound` is true, the service worker separately plays the beep through an offscreen document (see Notes) — the content script never touches audio
+3. If `settings.alarmSound` is true, the service worker separately plays the alarm sound through an offscreen document (see Notes) — the content script never touches audio
 4. Dismiss → `OVERLAY_DISMISSED` → service worker resumes the clock
 5. Switching tabs / ending the session → service worker sends `HIDE_OVERLAY` and closes out the distraction itself
 
@@ -245,7 +245,7 @@ Out of scope for phase 7 (structure already supports them): character picker in 
 - **Service worker persistence:** Chrome's service workers sleep after ~30s of inactivity. Nothing behavioural may live only in memory: `session` (with `endsAt`) and `graceTimers` are persisted, `bootstrap()` runs on every wake, and `grace-watchdog` re-checks state every 30s.
 - **Why grace periods aren't `chrome.alarms`:** Chrome clamps alarms to a ~30s minimum, but the grace period is configurable from 5s. So grace periods use `setTimeout` for precision, backed by a persisted `startedAt` + the watchdog for durability. The `session-end` alarm *is* a real alarm (`when: endsAt`), since it's always minutes away.
 - **Permissions:** `tabs` covers reading tab URLs; `content_scripts.matches: <all_urls>` (plus `host_permissions`) covers injecting the overlay anywhere; `offscreen` covers the audio-playing offscreen document. `activeTab` was removed — it was redundant with `tabs`. Any permission change must be mirrored in `privacy-policy.html`.
-- **Why the alarm sound plays from an offscreen document, not the content script:** Chrome's autoplay policy blocks Web Audio in a page that hasn't had a user gesture — and a grace-period alarm is triggered by a background timer, so the visited tab often has no gesture to point to. `background/offscreen.js` runs in a document owned by the extension itself, which is exempt from that restriction. `service_worker.js` creates it on demand (`ensureOffscreenDocument`) and messages it with `PLAY_ALARM_SOUND`.
+- **Why the alarm sound plays from an offscreen document, not the content script:** Chrome's autoplay policy blocks audio playback in a page that hasn't had a user gesture — and a grace-period alarm is triggered by a background timer, so the visited tab often has no gesture to point to. `background/offscreen.js` runs in a document owned by the extension itself, which is exempt from that restriction. `service_worker.js` creates it on demand (`ensureOffscreenDocument`) and messages it with `PLAY_ALARM_SOUND`. The sound itself is `assets/sounds/whistle-sound-effect.mp3`, played via an `Audio` element and resolved with `chrome.runtime.getURL()`; it's declared in `web_accessible_resources` alongside the coach images.
 - **Icon state:** We update the extension icon via `chrome.action.setIcon()` when session starts/ends to give visual feedback without opening the popup. `updateIcon()` in `background/service_worker.js` renders the real logo (`assets/keep-on-128x128.png`) onto an `OffscreenCanvas`, applying `ctx.filter = 'grayscale(100%)'` when the session is inactive — full color while active, grayscale while stopped.
 - **Domain matching:** Always go through `isBlacklistedUrl` / `normalizeDomain` in `lib/shared.js`. Matching is exact-host-or-subdomain — never `hostname.includes(domain)`, which made `notyoutube.com` match `youtube.com`.
 - **User input in the DOM:** Blacklist entries are user-supplied. Render them with `textContent`, never by interpolating into `innerHTML`.

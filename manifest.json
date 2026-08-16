@@ -60,7 +60,8 @@
         "assets/coaches/max/coach-max-angry.png",
         "assets/coaches/max/coach-max-embarrassed.png",
         "assets/coaches/max/coach-max-satisfied.png",
-        "content/overlay.css"
+        "content/overlay.css",
+        "assets/sounds/whistle-sound-effect.mp3"
       ],
       "matches": [
         "<all_urls>"

@@ -156,9 +156,12 @@ function formatMs(ms) {
 }
 
 function updateTimerDisplay(session) {
-  // `endsAt` is the single source of truth: the service worker pushes it
-  // forward while a distraction is paused, so this matches the real alarm
-  const remaining = Math.max(0, session.endsAt - Date.now());
+  // `endsAt` only gets pushed forward once a distraction ends (see
+  // endDistraction() in the service worker) — while isPaused is true it's
+  // still the pre-pause value, so anchor "now" to pausedStartTime to show
+  // the frozen clock instead of counting down through the pause.
+  const now = session.isPaused && session.pausedStartTime ? session.pausedStartTime : Date.now();
+  const remaining = Math.max(0, session.endsAt - now);
 
   document.getElementById('time-left').textContent = formatMs(remaining);
 }
@@ -234,6 +237,10 @@ stopBtn.addEventListener('click', () => {
 });
 
 startNewBtn.addEventListener('click', () => {
+  // Discard the last session's stats now, not just the UI state — otherwise
+  // reopening the popup without actually starting a new session would show
+  // the same stats screen again instead of the idle screen the user asked for
+  chrome.runtime.sendMessage({ type: 'CLEAR_LAST_SESSION' });
   loadFocusTabs();
   showInactiveState();
 });

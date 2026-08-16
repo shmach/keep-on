@@ -574,6 +574,20 @@ async function bootstrap() {
     session.id = session.id || session.startedAt;
     session.endsAt = session.startedAt + session.durationMs + (session.pausedMs || 0);
     session.overlayTabId = session.overlayTabId ?? null;
+
+    // A session paused mid-distraction when the upgrade landed can't resume
+    // normally: the pre-upgrade overlay has no way to message this worker to
+    // dismiss it, so isPaused would stay true forever with no end alarm ever
+    // scheduled. Bank the in-progress pause and resume, same as endDistraction().
+    if (session.isPaused) {
+      const pauseDuration = Date.now() - (session.pausedStartTime || Date.now());
+      session.pausedMs = (session.pausedMs || 0) + pauseDuration;
+      session.distractedMs = (session.distractedMs || 0) + pauseDuration;
+      session.endsAt += pauseDuration;
+      session.isPaused = false;
+      session.pausedStartTime = null;
+    }
+
     await setSession(session);
   }
 
@@ -618,6 +632,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       const { lastSession } = await chrome.storage.local.get('lastSession');
       sendResponse({ session, lastSession: lastSession || null });
     })();
+    return true; // async response
+  }
+
+  if (request.type === 'CLEAR_LAST_SESSION') {
+    chrome.storage.local.remove('lastSession').then(() => sendResponse({ success: true }));
     return true; // async response
   }
 
