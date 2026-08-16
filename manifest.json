@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Keep on",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Stay focused with smart distraction detection. Alarm on blacklisted sites after a grace period.",
   "permissions": [
     "tabs",
