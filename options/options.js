@@ -11,9 +11,38 @@ const resetBtn = document.getElementById('reset-btn');
 const saveMessage = document.getElementById('save-message');
 const blacklistContainer = document.getElementById('blacklist-container');
 
+const MIN_GRACE_SECONDS = 5;
+const MAX_GRACE_SECONDS = 60;
+
+function clampGracePeriodSeconds(value) {
+  const seconds = parseInt(value, 10);
+  if (!Number.isFinite(seconds)) return MIN_GRACE_SECONDS;
+  return Math.min(MAX_GRACE_SECONDS, Math.max(MIN_GRACE_SECONDS, seconds));
+}
+
 async function getSettings() {
   const result = await chrome.storage.local.get('settings');
   return { ...DEFAULT_SETTINGS, ...(result.settings || {}) };
+}
+
+// Every read-modify-write of `settings` is chained onto this promise so
+// concurrent edits (e.g. two quick blacklist removals) can't clobber each
+// other by both reading before either write lands.
+let settingsQueue = Promise.resolve();
+
+// `mutate` may return `false` to skip persisting (e.g. a rejected duplicate)
+function updateSettings(mutate) {
+  const result = settingsQueue.then(async () => {
+    const settings = await getSettings();
+    const changed = mutate(settings) !== false;
+    if (changed) {
+      await chrome.storage.local.set({ settings });
+      showSaveMessage();
+    }
+    return settings;
+  });
+  settingsQueue = result.catch(() => { });
+  return result;
 }
 
 // Load settings on page load
@@ -21,8 +50,9 @@ async function loadSettings() {
   const settings = await getSettings();
 
   // Grace period
-  gracePeriodSlider.value = settings.gracePeriodMs / 1000;
-  gracePeriodValue.textContent = settings.gracePeriodMs / 1000;
+  const seconds = clampGracePeriodSeconds(settings.gracePeriodMs / 1000);
+  gracePeriodSlider.value = seconds;
+  gracePeriodValue.textContent = seconds;
 
   // Alarm sound
   alarmSoundToggle.checked = settings.alarmSound;
@@ -56,13 +86,6 @@ function renderBlacklist(domains) {
   });
 }
 
-async function saveSetting(key, value) {
-  const settings = await getSettings();
-  settings[key] = value;
-  await chrome.storage.local.set({ settings });
-  showSaveMessage();
-}
-
 function showSaveMessage() {
   saveMessage.style.display = 'block';
   setTimeout(() => {
@@ -71,10 +94,10 @@ function showSaveMessage() {
 }
 
 async function removeDomain(domain) {
-  const settings = await getSettings();
-  const blacklist = settings.blacklist.filter((d) => d !== domain);
-  await saveSetting('blacklist', blacklist);
-  renderBlacklist(blacklist);
+  const settings = await updateSettings((s) => {
+    s.blacklist = s.blacklist.filter((d) => d !== domain);
+  });
+  renderBlacklist(settings.blacklist);
 }
 
 async function addDomain() {
@@ -85,37 +108,43 @@ async function addDomain() {
     return;
   }
 
-  const settings = await getSettings();
+  let duplicate = false;
+  const settings = await updateSettings((s) => {
+    if (s.blacklist.some((d) => normalizeDomain(d) === domain)) {
+      duplicate = true;
+      return false;
+    }
+    s.blacklist = [...s.blacklist, domain];
+  });
 
-  if (settings.blacklist.some((d) => normalizeDomain(d) === domain)) {
+  if (duplicate) {
     alert('Domain already in blacklist');
     return;
   }
 
-  const blacklist = [...settings.blacklist, domain];
-  await saveSetting('blacklist', blacklist);
-  renderBlacklist(blacklist);
-
+  renderBlacklist(settings.blacklist);
   newDomainInput.value = '';
 }
 
 async function resetToDefaults() {
   if (confirm('Reset all settings to defaults?')) {
-    await chrome.storage.local.set({ settings: { ...DEFAULT_SETTINGS } });
+    await updateSettings((s) => {
+      Object.assign(s, DEFAULT_SETTINGS, { blacklist: [...DEFAULT_SETTINGS.blacklist] });
+    });
     await loadSettings();
-    showSaveMessage();
   }
 }
 
 // Event listeners
 gracePeriodSlider.addEventListener('input', async (e) => {
-  const ms = parseInt(e.target.value) * 1000;
-  gracePeriodValue.textContent = e.target.value;
-  await saveSetting('gracePeriodMs', ms);
+  const seconds = clampGracePeriodSeconds(e.target.value);
+  gracePeriodSlider.value = seconds;
+  gracePeriodValue.textContent = seconds;
+  await updateSettings((s) => { s.gracePeriodMs = seconds * 1000; });
 });
 
 alarmSoundToggle.addEventListener('change', async (e) => {
-  await saveSetting('alarmSound', e.target.checked);
+  await updateSettings((s) => { s.alarmSound = e.target.checked; });
 });
 
 addDomainBtn.addEventListener('click', addDomain);

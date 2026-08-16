@@ -41,7 +41,14 @@ async function setSession(session) {
 
 async function getSettings() {
   const { settings } = await chrome.storage.local.get('settings');
-  return { ...DEFAULT_SETTINGS, ...(settings || {}) };
+  const merged = { ...DEFAULT_SETTINGS, ...(settings || {}) };
+
+  // Defensive backstop: options.js validates before saving, but a corrupt or
+  // pre-validation value in storage must never reach setTimeout() as NaN.
+  const grace = Number(merged.gracePeriodMs);
+  merged.gracePeriodMs = Number.isFinite(grace) ? Math.min(60000, Math.max(5000, grace)) : DEFAULT_SETTINGS.gracePeriodMs;
+
+  return merged;
 }
 
 // { [tabId]: { startedAt, sessionId } }
@@ -76,7 +83,11 @@ async function startSession(config) {
     return { success: false, error: 'Invalid session duration' };
   }
 
-  const focusTabId = Number.isInteger(config.focusTabId) ? config.focusTabId : null;
+  let focusTabId = Number.isInteger(config.focusTabId) ? config.focusTabId : null;
+  if (focusTabId !== null && !(await safeGetTab(focusTabId))) {
+    focusTabId = null; // Tab was closed between selection and Start
+  }
+
   const now = Date.now();
   const session = {
     id: now,
@@ -116,18 +127,29 @@ async function endSession(isTimerExpired = false) {
   const session = await getSession();
   if (!session || !session.active) return;
 
+  const now = Date.now();
+
   // If the distraction overlay is still showing when the session ends,
   // accumulate that in-progress distraction time before computing stats
   if (session.isPaused && session.pausedStartTime) {
-    session.distractedMs += Date.now() - session.pausedStartTime;
+    const pauseDuration = now - session.pausedStartTime;
+    session.distractedMs += pauseDuration;
+    session.pausedMs += pauseDuration;
   }
+
+  // A session stopped early never earned its full configured duration — report
+  // the actual focused time (elapsed minus paused/distracted time), not the
+  // target the user never reached. A naturally-completed session did reach
+  // it (endsAt was pushed forward to compensate for every pause), so use the
+  // configured duration there for a clean, jitter-free number.
+  const focusedMs = Math.max(0, (now - session.startedAt) - session.pausedMs);
 
   // Capture stats before mutating session state
   const stats = {
-    durationMs: session.durationMs,
+    durationMs: isTimerExpired ? session.durationMs : focusedMs,
     distractions: session.distractions,
     distractedMs: session.distractedMs,
-    endedAt: Date.now()
+    endedAt: now
   };
 
   await chrome.storage.local.set({ lastSession: stats });
@@ -315,16 +337,22 @@ async function triggerOverlay(tabId) {
   const graceEntry = timers[tabId];
   await clearGracePeriod(tabId);
 
-  const session = await getSession();
+  let session = await getSession();
   if (!session || !session.active || session.isPaused) return;
   if (graceEntry && graceEntry.sessionId !== session.id) return; // Stale timer
   if (tabId === session.focusTabId) return;
 
+  const sessionId = session.id;
   const settings = await getSettings();
 
   // Only alarm if the user is still sitting on this tab
   const tab = await safeGetTab(tabId);
   if (!tab || !tab.active || !isBlacklistedUrl(tab.url, settings.blacklist)) return;
+
+  // Re-read immediately before mutating: the awaits above give the session-end
+  // alarm a window to fire and end this same session out from under us
+  session = await getSession();
+  if (!session || session.id !== sessionId || !session.active || session.isPaused) return;
 
   session.distractions++;
   session.isPaused = true;
@@ -342,9 +370,12 @@ async function triggerOverlay(tabId) {
       type: 'SHOW_OVERLAY',
       sessionInfo: session,
       distractionStartedAt,
-      alarmSound: settings.alarmSound,
       url: tab.url
     });
+
+    if (settings.alarmSound) {
+      playAlarmSound().catch(() => { });
+    }
   } catch {
     // Content script unreachable (restricted page, document not ready). Roll
     // back so the session isn't left paused waiting on an overlay that never
@@ -360,6 +391,34 @@ async function triggerOverlay(tabId) {
 
 function hideOverlay(tabId) {
   chrome.tabs.sendMessage(tabId, { type: 'HIDE_OVERLAY' }).catch(() => { });
+}
+
+// ---------------------------------------------------------------------------
+// Alarm sound (offscreen document)
+// ---------------------------------------------------------------------------
+
+// Audio must play from an offscreen document, not the triggering tab: Chrome's
+// autoplay policy blocks Web Audio in a page that hasn't had a user gesture,
+// which a background-triggered alarm never has. Offscreen documents belong to
+// the extension itself and are exempt from that restriction.
+const OFFSCREEN_DOCUMENT_PATH = 'background/offscreen.html';
+
+async function ensureOffscreenDocument() {
+  try {
+    await chrome.offscreen.createDocument({
+      url: OFFSCREEN_DOCUMENT_PATH,
+      reasons: ['AUDIO_PLAYBACK'],
+      justification: 'Play the distraction alarm beep'
+    });
+  } catch (e) {
+    // createDocument rejects if one already exists — that's fine, reuse it
+    if (!String(e).includes('single offscreen')) throw e;
+  }
+}
+
+async function playAlarmSound() {
+  await ensureOffscreenDocument();
+  await chrome.runtime.sendMessage({ type: 'PLAY_ALARM_SOUND' });
 }
 
 // ---------------------------------------------------------------------------
@@ -424,9 +483,6 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   let session = await getSession();
   if (!session || !session.active) return;
 
-  // URL changed, so any pending grace period for the old URL no longer applies
-  await clearGracePeriod(tabId);
-
   // Navigating destroys the overlay along with the old document, so the
   // distraction has to be closed out here too
   if (session.overlayTabId === tabId) {
@@ -437,7 +493,13 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 
   const settings = await getSettings();
   if (isBlacklistedUrl(changeInfo.url, settings.blacklist)) {
+    // Still blacklisted — SPA sites (Reddit, YouTube, etc.) fire this event on
+    // every in-page navigation, so ensureGracePeriod must resume any grace
+    // period already in flight rather than restart it from zero.
     await ensureGracePeriod(tabId, session, settings.gracePeriodMs);
+  } else {
+    // Left the blacklisted host, so any pending grace period no longer applies
+    await clearGracePeriod(tabId);
   }
 });
 
@@ -445,9 +507,16 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   await clearGracePeriod(tabId);
 
-  const session = await getSession();
-  if (session && session.active && session.overlayTabId === tabId) {
-    await endDistraction(session);
+  let session = await getSession();
+  if (!session || !session.active) return;
+
+  if (session.overlayTabId === tabId) {
+    session = await endDistraction(session);
+  }
+
+  if (session.focusTabId === tabId) {
+    session.focusTabId = null;
+    await setSession(session);
   }
 });
 
@@ -555,7 +624,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'OVERLAY_DISMISSED') {
     (async () => {
       const session = await getSession();
-      await endDistraction(session);
+      // Only end the distraction this message actually came from — a late
+      // message from a stale/previous overlay must not resume the wrong session
+      if (session && sender.tab && session.overlayTabId === sender.tab.id) {
+        await endDistraction(session);
+      }
       sendResponse({ success: true });
     })();
     return true; // async response

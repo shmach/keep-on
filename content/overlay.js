@@ -1,14 +1,26 @@
 // Content Script: Overlay Injection
 // Runs on all tabs, listens for alarm messages from service worker
 
-let overlayElement = null;
+let overlayElement = null; // shadow host, appended to document.documentElement
+let shadowRoot = null;
 let counterInterval = null;
 let distraction = null;
 let beforeUnloadHandler = null;
+let cachedCss = null;
+
+// Content scripts are treated as the page's origin for resource loading, so
+// overlay.css must be listed in manifest.json's web_accessible_resources for
+// this fetch to succeed — same reason the coach images need it.
+async function getOverlayCss() {
+  if (cachedCss) return cachedCss;
+  const response = await fetch(chrome.runtime.getURL('content/overlay.css'));
+  cachedCss = await response.text();
+  return cachedCss;
+}
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'SHOW_OVERLAY') {
-    showAlarmOverlay(request.sessionInfo, request.distractionStartedAt, request.alarmSound !== false, request.url);
+    showAlarmOverlay(request.sessionInfo, request.distractionStartedAt, request.url).catch(() => { });
     sendResponse({ success: true });
   } else if (request.type === 'HIDE_OVERLAY') {
     // Service worker already closed out the distraction (user switched tabs,
@@ -18,7 +30,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
-function showAlarmOverlay(sessionInfo, distractionStartedAt, playSound = true, url) {
+async function showAlarmOverlay(sessionInfo, distractionStartedAt, url) {
   if (overlayElement) {
     return; // Already showing
   }
@@ -29,42 +41,56 @@ function showAlarmOverlay(sessionInfo, distractionStartedAt, playSound = true, u
     distractionStartedAt: distractionStartedAt || Date.now()
   };
 
+  // Reserve the slot immediately so a second SHOW_OVERLAY firing while the
+  // CSS fetch below is in flight doesn't inject a duplicate overlay
+  overlayElement = document.createElement('div');
+  overlayElement.id = 'keep-on-overlay-host';
+  document.documentElement.appendChild(overlayElement);
+  shadowRoot = overlayElement.attachShadow({ mode: 'open' });
+
   const minutesIn = Math.round((Date.now() - sessionInfo.startedAt) / 1000 / 60);
   const hasFocusTab = Number.isInteger(sessionInfo.focusTabId);
 
-  // Create overlay container
-  overlayElement = document.createElement('div');
-  overlayElement.id = 'focus-alarm-overlay';
-  overlayElement.innerHTML = `
-    <div class="focus-alarm-backdrop">
-      <div class="focus-alarm-card">
-        <h1 class="focus-alarm-title">⏰ Time Check</h1>
-        <p class="focus-alarm-counter">
-          You've been here for <span id="distraction-counter">0</span>s
-        </p>
-        <p class="focus-alarm-message" id="focus-alarm-message">
-          You're ${minutesIn} min into your session — stay sharp!
-        </p>
-      <div class="coach-container">
-        <img data-coach-image src="#" alt="Coach Max" class="coach-image">
-        <div class="coach-phrase-container">
-          <span data-coach-phrase class="coach-phrase"></span>
+  const css = await getOverlayCss();
+
+  // Host page CSS is fully blocked by the shadow boundary; only inherited
+  // properties (line-height, font-size, color...) can still leak in from the
+  // host element's computed style, hence the :host reset in overlay.css
+  if (!overlayElement) {
+    return; // removeOverlay() ran while the fetch above was in flight
+  }
+
+  shadowRoot.innerHTML = `
+    <style>${css}</style>
+    <div id="focus-alarm-overlay">
+      <div class="focus-alarm-backdrop">
+        <div class="focus-alarm-card">
+          <h1 class="focus-alarm-title">⏰ Time Check</h1>
+          <p class="focus-alarm-counter">
+            You've been here for <span id="distraction-counter">0</span>s
+          </p>
+          <p class="focus-alarm-message" id="focus-alarm-message">
+            You're ${minutesIn} min into your session — stay sharp!
+          </p>
+        <div class="coach-container">
+          <img data-coach-image alt="Coach Max" class="coach-image">
+          <div class="coach-phrase-container">
+            <span data-coach-phrase class="coach-phrase"></span>
+          </div>
         </div>
-      </div>
-        ${hasFocusTab ? '<button id="focus-alarm-back-btn" class="focus-alarm-btn">Back to focus tab</button>' : ''}
-        <button id="focus-alarm-dismiss-btn" class="focus-alarm-btn${hasFocusTab ? ' secondary' : ''}">Dismiss</button>
+          ${hasFocusTab ? '<button id="focus-alarm-back-btn" class="focus-alarm-btn">Back to focus tab</button>' : ''}
+          <button id="focus-alarm-dismiss-btn" class="focus-alarm-btn${hasFocusTab ? ' secondary' : ''}">Dismiss</button>
+        </div>
       </div>
     </div>
   `;
 
-  document.documentElement.appendChild(overlayElement);
-
   let distractionCount;
 
-  if (sessionInfo.distraction > 3) {
+  if (sessionInfo.distractions > 3) {
     distractionCount = 'infinity';
-  } else if (sessionInfo.distraction > 0) {
-    distractionCount = sessionInfo.distraction;
+  } else if (sessionInfo.distractions > 0) {
+    distractionCount = sessionInfo.distractions;
   } else {
     distractionCount = 1;
   }
@@ -74,27 +100,23 @@ function showAlarmOverlay(sessionInfo, distractionStartedAt, playSound = true, u
     {
       distractions: distractionCount,
       minutesIn: minutesIn,
-      minutesLeft: sessionInfo.duration - minutesIn,
+      minutesLeft: sessionInfo.durationMs / 60000 - minutesIn,
       url
     }
   );
 
-  const coachImageEl = overlayElement.querySelector('[data-coach-image]');
-  const coachPhraseEl = overlayElement.querySelector('[data-coach-phrase]');
+  const coachImageEl = shadowRoot.querySelector('[data-coach-image]');
+  const coachPhraseEl = shadowRoot.querySelector('[data-coach-phrase]');
 
   if (image) coachImageEl.src = image;
   if (phrase) coachPhraseEl.textContent = phrase;
 
   coachImageEl.addEventListener('error', () => coachImageEl.style.display = 'none');
 
-  if (playSound) {
-    playAlarmSound();
-  }
-
   // Event listeners
-  document.getElementById('focus-alarm-dismiss-btn').addEventListener('click', dismissOverlay);
+  shadowRoot.getElementById('focus-alarm-dismiss-btn').addEventListener('click', dismissOverlay);
 
-  const backBtn = document.getElementById('focus-alarm-back-btn');
+  const backBtn = shadowRoot.getElementById('focus-alarm-back-btn');
   if (backBtn) {
     backBtn.addEventListener('click', () => {
       chrome.runtime.sendMessage({ type: 'FOCUS_TAB' }).catch(() => { });
@@ -110,7 +132,7 @@ function showAlarmOverlay(sessionInfo, distractionStartedAt, playSound = true, u
       return;
     }
     const elapsed = Math.round((Date.now() - distraction.distractionStartedAt) / 1000);
-    const counterEl = document.getElementById('distraction-counter');
+    const counterEl = shadowRoot.getElementById('distraction-counter');
     if (counterEl) {
       counterEl.textContent = elapsed;
     }
@@ -126,6 +148,7 @@ function removeOverlay() {
     overlayElement.parentElement.removeChild(overlayElement);
   }
   overlayElement = null;
+  shadowRoot = null;
   distraction = null;
 
   if (counterInterval) {
@@ -146,28 +169,5 @@ function dismissOverlay() {
   if (wasShowing) {
     // Notify service worker so it resumes the session clock
     chrome.runtime.sendMessage({ type: 'OVERLAY_DISMISSED' }).catch(() => { });
-  }
-}
-
-function playAlarmSound() {
-  // Create audio context for beep
-  try {
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const oscillator = audioContext.createOscillator();
-    const gainNode = audioContext.createGain();
-
-    oscillator.connect(gainNode);
-    gainNode.connect(audioContext.destination);
-
-    oscillator.frequency.value = 800; // Frequency in Hz
-    oscillator.type = 'sine';
-
-    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
-
-    oscillator.start(audioContext.currentTime);
-    oscillator.stop(audioContext.currentTime + 0.5);
-  } catch (e) {
-    // Audio unavailable; fail silently
   }
 }

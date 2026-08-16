@@ -1,3 +1,8 @@
+:host {
+  all: initial;
+  display: block;
+}
+
 #focus-alarm-overlay {
   position: fixed;
   top: 0;

@@ -4,7 +4,7 @@
 const durationInput = document.getElementById('duration-input');
 const focusTabSelect = document.getElementById('focus-tab-select');
 const startBtn = document.getElementById('start-btn');
-const optionsBtn = document.getElementById('options-btn');
+const optionsBtns = document.querySelectorAll('.options-btn');
 const stopBtn = document.getElementById('stop-btn');
 const startNewBtn = document.getElementById('start-new-btn');
 
@@ -23,13 +23,22 @@ class CoachController {
   ) {
     this.imagesElements = imagesElements;
     this.phrasesElements = phrasesElements;
+
+    // A missing/renamed image must never break the UI — hide it and let the
+    // phrase stand alone
+    this.imagesElements.forEach((el) => {
+      el.addEventListener('error', () => { el.style.display = 'none'; });
+    });
   }
 
   updateCoachMoment(context, data) {
     const { image, phrase } = getCoachMoment(context, data);
 
     if (image) {
-      this.imagesElements.forEach(el => el.src = image);
+      this.imagesElements.forEach(el => {
+        el.style.display = '';
+        el.src = image;
+      });
     };
 
     if (phrase) {
@@ -44,7 +53,6 @@ const coachController = new CoachController();
 async function init() {
   await loadFocusTabs();
   await updateSessionState();
-  coachController.updateCoachMoment('welcome', {})
 }
 
 // Load available tabs for focus tab selection
@@ -69,20 +77,25 @@ async function loadFocusTabs() {
   });
 }
 
-// Update UI based on session state
-async function updateSessionState() {
-  chrome.runtime.sendMessage({ type: 'GET_SESSION' }, (response) => {
-    if (!response) return;
-    const session = response.session;
+// Update UI based on session state. Returns a promise that resolves once the
+// screen has actually been (re)rendered — callers that `await` this are
+// guaranteed not to run before the real state is known.
+function updateSessionState() {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({ type: 'GET_SESSION' }, (response) => {
+      if (!response) { resolve(); return; }
+      const session = response.session;
 
-    if (session && session.active) {
-      showActiveState(session);
-      startLiveUpdates();
-    } else if (response.lastSession) {
-      showSessionEnded(response.lastSession);
-    } else {
-      showInactiveState();
-    }
+      if (session && session.active) {
+        showActiveState(session);
+        startLiveUpdates();
+      } else if (response.lastSession) {
+        showSessionEnded(response.lastSession);
+      } else {
+        showInactiveState();
+      }
+      resolve();
+    });
   });
 }
 
@@ -90,6 +103,8 @@ function showInactiveState() {
   sessionInactiveDiv.style.display = 'block';
   sessionActiveDiv.style.display = 'none';
   sessionEndedDiv.style.display = 'none';
+
+  coachController.updateCoachMoment('welcome', {});
 
   if (updateInterval) {
     clearInterval(updateInterval);
@@ -173,14 +188,23 @@ function showSessionEnded(session) {
 }
 
 // Event listeners
+const MAX_DURATION_MINUTES = 240;
+
 startBtn.addEventListener('click', async () => {
   const minutes = parseInt(durationInput.value, 10);
-  if (!Number.isFinite(minutes) || minutes < 1) {
-    alert('Please enter a session duration of at least 1 minute');
+  if (!Number.isFinite(minutes) || minutes < 1 || minutes > MAX_DURATION_MINUTES) {
+    alert(`Please enter a session duration between 1 and ${MAX_DURATION_MINUTES} minutes`);
     return;
   }
 
-  const focusTabId = focusTabSelect.value ? parseInt(focusTabSelect.value, 10) : null;
+  let focusTabId = focusTabSelect.value ? parseInt(focusTabSelect.value, 10) : null;
+  if (focusTabId !== null) {
+    try {
+      await chrome.tabs.get(focusTabId);
+    } catch {
+      focusTabId = null; // Selected tab was closed before Start was clicked
+    }
+  }
 
   chrome.runtime.sendMessage({
     type: 'START_SESSION',
@@ -197,8 +221,10 @@ startBtn.addEventListener('click', async () => {
   });
 });
 
-optionsBtn.addEventListener('click', () => {
-  chrome.runtime.openOptionsPage();
+optionsBtns.forEach((btn) => {
+  btn.addEventListener('click', () => {
+    chrome.runtime.openOptionsPage();
+  });
 });
 
 stopBtn.addEventListener('click', () => {

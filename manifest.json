@@ -7,7 +7,8 @@
     "tabs",
     "storage",
     "alarms",
-    "notifications"
+    "notifications",
+    "offscreen"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -40,9 +41,6 @@
         "lib/coach.js",
         "content/overlay.js"
       ],
-      "css": [
-        "content/overlay.css"
-      ],
       "run_at": "document_start"
     }
   ],
@@ -61,7 +59,8 @@
         "assets/coaches/max/coach-max-base.png",
         "assets/coaches/max/coach-max-angry.png",
         "assets/coaches/max/coach-max-embarrassed.png",
-        "assets/coaches/max/coach-max-satisfied.png"
+        "assets/coaches/max/coach-max-satisfied.png",
+        "content/overlay.css"
       ],
       "matches": [
         "<all_urls>"
